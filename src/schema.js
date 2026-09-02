@@ -61,7 +61,7 @@ export function validateTokens(tokens) {
     throw new TokenValidationError(errors.join("; "));
   }
   try {
-    resolveReferences(tokens);
+    resolveReferences(tokens, {});
   } catch (err) {
     throw new TokenValidationError(err.message);
   }

@@ -93,12 +93,29 @@ test("resolveReferences substitutes {dotted.path} tokens", () => {
   assert.equal(resolved.gap, "1rem");
 });
 
-test("resolveReferences wraps spaced arithmetic in calc()", () => {
+test("resolveReferences collapses arithmetic when reduce is on (default)", () => {
   const resolved = resolveReferences({
     spacing: { md: "1rem" },
     gap: "{spacing.md} * 1.5",
   });
+  assert.equal(resolved.gap, "1.5rem");
+});
+
+test("resolveReferences keeps calc() when reduce is off", () => {
+  const resolved = resolveReferences(
+    { spacing: { md: "1rem" }, gap: "{spacing.md} * 1.5" },
+    { reduce: false }
+  );
   assert.equal(resolved.gap, "calc(1rem * 1.5)");
+});
+
+test("resolveReferences falls back to calc() for mismatched units", () => {
+  const resolved = resolveReferences({
+    a: "1rem",
+    b: "1px",
+    gap: "{a} + {b}",
+  });
+  assert.equal(resolved.gap, "calc(1rem + 1px)");
 });
 
 test("resolveReferences does not wrap values that look like hex colors", () => {
@@ -120,10 +137,18 @@ test("resolveReferences throws on circular references", () => {
   );
 });
 
-test("convert emits calc() for arithmetic references", () => {
+test("convert collapses arithmetic references by default", () => {
   const css = convert(
     { spacing: { md: "1rem", lg: "{spacing.md} * 2" } },
     { format: "css" }
+  );
+  assert.match(css, /--spacing-lg: 2rem;/);
+});
+
+test("convert keeps calc() for arithmetic when reduce is off", () => {
+  const css = convert(
+    { spacing: { md: "1rem", lg: "{spacing.md} * 2" } },
+    { format: "css", reduce: false }
   );
   assert.match(css, /--spacing-lg: calc\(1rem \* 2\);/);
 });

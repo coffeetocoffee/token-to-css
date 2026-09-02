@@ -22,10 +22,15 @@ export function flattenTokens(input, prefix = []) {
   return out;
 }
 
-function renderCssVars(flat, { selector = ":root", indent = "  " } = {}) {
-  const lines = Object.entries(flat).map(
-    ([name, value]) => `${indent}--${name.replace(/^--/, "")}: ${value};`
-  );
+function renderCssVars(
+  flat,
+  { selector = ":root", indent = "  ", sourceComments = false } = {}
+) {
+  const lines = Object.entries(flat).map(([name, value]) => {
+    const path = name.replace(/-/g, ".");
+    const comment = sourceComments ? `${indent}/* ${path} */\n` : "";
+    return `${comment}${indent}--${name.replace(/^--/, "")}: ${value};`;
+  });
   return `${selector} {\n${lines.join("\n")}\n}\n`;
 }
 
@@ -33,10 +38,12 @@ export function toCSS(flat, options = {}) {
   return renderCssVars(flat, options);
 }
 
-export function toSCSS(flat) {
-  const lines = Object.entries(flat).map(
-    ([name, value]) => `$${name}: ${value};`
-  );
+export function toSCSS(flat, { sourceComments = false } = {}) {
+  const lines = Object.entries(flat).map(([name, value]) => {
+    const path = name.replace(/-/g, ".");
+    const comment = sourceComments ? `/* ${path} */\n` : "";
+    return `${comment}$${name}: ${value};`;
+  });
   return `${lines.join("\n")}\n`;
 }
 
@@ -46,23 +53,35 @@ export function toBarefoot(flat, options = {}) {
   const selector = theme
     ? `[data-bf-theme="${theme}"]`
     : options.selector || ":root";
-  return `/* barefoot-css theme tokens */\n` + renderCssVars(mapped, { selector });
+  return (
+    `/* barefoot-css theme tokens */\n` +
+    renderCssVars(mapped, { selector, sourceComments: options.sourceComments })
+  );
 }
 
 export function convert(
   tokens,
-  { format = "css", theme, selector, map, resolve = true, validate = true } = {}
+  {
+    format = "css",
+    theme,
+    selector,
+    map,
+    resolve = true,
+    reduce = true,
+    validate = true,
+    sourceComments = false,
+  } = {}
 ) {
   if (validate) validateTokens(tokens);
-  const tree = resolve ? resolveReferences(tokens) : tokens;
+  const tree = resolve ? resolveReferences(tokens, { reduce }) : tokens;
   const flat = flattenTokens(tree);
   switch (format) {
     case "scss":
-      return toSCSS(flat);
+      return toSCSS(flat, { sourceComments });
     case "barefoot":
-      return toBarefoot(flat, { theme, selector, map });
+      return toBarefoot(flat, { theme, selector, map, sourceComments });
     case "css":
     default:
-      return toCSS(flat, { selector });
+      return toCSS(flat, { selector, sourceComments });
   }
 }

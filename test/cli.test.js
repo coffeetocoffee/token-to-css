@@ -107,3 +107,27 @@ test("CLI merges --glob files", () => {
   }
 });
 
+test("CLI writes multiple outputs with per-output formats", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const input = join(dir, "tokens.json");
+    const cssOut = join(dir, "out.css");
+    const scssOut = join(dir, "out.scss");
+    writeFileSync(input, JSON.stringify({ color: { primary: "#3b82f6" } }));
+    execFileSync("node", [
+      CLI,
+      input,
+      "-o",
+      `css:${cssOut}`,
+      "-o",
+      `scss:${scssOut}`,
+    ], { encoding: "utf8" });
+    const css = readFileSync(cssOut, "utf8");
+    const scss = readFileSync(scssOut, "utf8");
+    assert.match(css, /--color-primary: #3b82f6;/);
+    assert.match(scss, /\$color-primary: #3b82f6;/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+

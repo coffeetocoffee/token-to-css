@@ -12,7 +12,9 @@ export interface ConvertOptions {
   selector?: string;
   map?: Record<string, string>;
   resolve?: boolean;
+  reduce?: boolean;
   validate?: boolean;
+  sourceComments?: boolean;
 }
 
 export function flattenTokens(

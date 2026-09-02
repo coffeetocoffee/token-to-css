@@ -26,7 +26,7 @@ node src/cli.js tokens.json -o output.css
 token-to-css <input.json> [options]
 
 Options:
-  -o, --output <file>   Write output to a file (default: stdout)
+  -o, --output <[fmt:]file>  Write output (repeatable); e.g. scss:out.scss
   -f, --format <name>   css | scss | barefoot  (default: css)
   -s, --selector <sel>  CSS selector for variables (default: :root)
   -t, --theme <name>    barefoot only: wrap in [data-bf-theme="name"]
@@ -34,8 +34,10 @@ Options:
   -i, --import <file>   Merge additional token files (repeatable)
   -g, --glob <pattern>  Merge files matching a glob (repeatable)
   -c, --config <file>   Config file with default options (default: auto-detect)
-  -w, --watch           Re-generate whenever the input file changes
+  -w, --watch           Re-generate whenever an input file changes
   -R, --no-resolve      Do not resolve {token} references
+  -z, --no-reduce       Keep arithmetic as calc() instead of collapsing it
+  -C, --source-comments Emit a /* token.path */ comment above each variable
   -n, --no-validate     Skip token validation
   -h, --help            Show help
 ```
@@ -60,6 +62,32 @@ Glob patterns are also supported via `--glob` (repeatable):
 ```bash
 token-to-css --glob "src/**/*.tokens.json" -o theme.css
 ```
+
+### Multiple outputs
+
+Pass `-o` more than once to emit several formats in one run. Prefix a path
+with a format to pick the format per file:
+
+```bash
+token-to-css tokens.json -o css:theme.css -o scss:theme.scss -o barefoot:barefoot.css
+```
+
+### Arithmetic
+
+Expressions with spaced operators are collapsed when possible and otherwise
+emitted as `calc()`:
+
+```json
+{ "spacing": { "md": "1rem", "lg": "{spacing.md} * 2" } }
+```
+
+```css
+--spacing-md: 1rem;
+--spacing-lg: 2rem;        /* collapsed */
+```
+
+Use `--no-reduce` to always keep `calc(...)`. Add `--source-comments` to emit
+a `/* token.path */` note above each variable for traceability.
 
 ## Config file
 

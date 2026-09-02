@@ -3,7 +3,9 @@ import { readFileSync, writeFileSync, watch, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { convert } from "./index.js";
 import { deepMerge } from "./merge.js";
-import { expandGlob } from "./glob.js";
+import { expandGlob, globBaseDir } from "./glob.js";
+
+const REPEATABLE = new Set(["import", "i", "glob", "g", "output", "o"]);
 
 function parseArgs(argv) {
   const args = { _: [] };
@@ -16,10 +18,9 @@ function parseArgs(argv) {
     const key = a.replace(/^-+/, "");
     const next = argv[i + 1];
     if (next && !next.startsWith("-")) {
-      if (key === "import" || key === "i" || key === "glob" || key === "g") {
-        if (!args[key]) args[key] = [];
-        if (Array.isArray(args[key])) args[key].push(next);
-        else args[key] = [args[key], next];
+      if (REPEATABLE.has(key)) {
+        const cur = args[key];
+        args[key] = cur ? [...(Array.isArray(cur) ? cur : [cur]), next] : [next];
       } else {
         args[key] = next;
       }
@@ -38,7 +39,7 @@ Usage:
   token-to-css <input.json> [options]
 
 Options:
-  -o, --output <file>   Write output to a file (default: stdout)
+  -o, --output <[fmt:]file>  Write output (repeatable); prefix format, e.g. scss:out.scss
   -f, --format <name>   css | scss | barefoot  (default: css)
   -s, --selector <sel>  CSS selector for variables (default: :root)
   -t, --theme <name>    barefoot only: wrap in [data-bf-theme="name"]
@@ -48,6 +49,8 @@ Options:
   -c, --config <file>   Config file with default options (default: auto-detect)
   -w, --watch           Re-generate whenever an input file changes
   -R, --no-resolve      Do not resolve {token} references
+  -z, --no-reduce       Keep arithmetic as calc() instead of collapsing it
+  -C, --source-comments Emit a /* token.path */ comment above each variable
   -n, --no-validate     Skip token validation
   -h, --help            Show help
 `);
@@ -81,19 +84,32 @@ function loadConfig(configPath) {
   return JSON.parse(readFileSync(configPath, "utf8"));
 }
 
-function generate(paths, options, output) {
+function parseOutputs(list, defaultFormat) {
+  return list.map((spec) => {
+    const m = /^([a-z]+):(.+)$/i.exec(spec);
+    if (m && ["css", "scss", "barefoot"].includes(m[1].toLowerCase())) {
+      return { format: m[1].toLowerCase(), path: m[2] };
+    }
+    return { format: null, path: spec };
+  });
+}
+
+function generateAll(paths, options, outputs) {
   try {
     if (options.mapPath) {
       options.map = JSON.parse(readFileSync(options.mapPath, "utf8"));
     }
     const tokens = loadMergedTokens(paths);
-    const css = convert(tokens, options);
-    if (output) {
-      const outPath = resolve(process.cwd(), output);
-      writeFileSync(outPath, css, "utf8");
-      console.error(`wrote ${options.format} to ${outPath}`);
-    } else {
-      process.stdout.write(css);
+    for (const out of outputs) {
+      const format = out.format || options.format;
+      const css = convert(tokens, { ...options, format });
+      if (out.path) {
+        const outPath = resolve(process.cwd(), out.path);
+        writeFileSync(outPath, css, "utf8");
+        console.error(`wrote ${format} to ${outPath}`);
+      } else {
+        process.stdout.write(css);
+      }
     }
     return true;
   } catch (err) {
@@ -132,15 +148,12 @@ export function run(argv = process.argv.slice(2)) {
     ...collect(args.import || args.i),
   ];
   const globs = [...collect(config.glob), ...collect(args.glob || args.g)];
-  const globFiles = globs.flatMap((g) => expandGlob(g));
 
   const input = args._[0];
-  if (!input && imports.length === 0 && globFiles.length === 0) {
+  if (!input && imports.length === 0 && globs.length === 0) {
     console.error("error: no input file provided. Use --help for usage.");
     return 1;
   }
-
-  const paths = [...(input ? [input] : []), ...imports, ...globFiles];
 
   const options = { format: args.format || args.f || config.format || "css" };
   if (args.selector || args.s) options.selector = args.selector || args.s;
@@ -154,20 +167,51 @@ export function run(argv = process.argv.slice(2)) {
   } else {
     options.resolve = false;
   }
+  options.reduce = !(args["no-reduce"] || args.z);
+  options.sourceComments = Boolean(args["source-comments"] || args.C);
   options.validate = !(args["no-validate"] || args.n);
 
-  const output = args.output || args.o || config.output;
-  const ok = generate(paths, options, output);
+  const outputsList = collect(args.output || args.o);
+  const configOutputs = collect(config.output);
+  const allOutputs = parseOutputs([...configOutputs, ...outputsList], options.format);
+  const outputs =
+    allOutputs.length > 0
+      ? allOutputs
+      : [{ format: null, path: null }];
+
+  const rebuildPaths = () => [
+    ...(input ? [input] : []),
+    ...imports,
+    ...globs.flatMap((g) => expandGlob(g)),
+  ];
+
+  let paths = rebuildPaths();
+  const ok = generateAll(paths, options, outputs);
 
   if (args.watch || args.w) {
-    const watchPaths = paths.map((p) => resolve(process.cwd(), p));
-    console.error(`watching ${watchPaths.join(", ")} (ctrl+c to stop)`);
-    for (const file of watchPaths) {
-      watchFile(file, () => {
-        const okNow = generate(paths, options, output);
-        if (okNow) process.exitCode = 0;
-      });
+    const watched = new Set();
+    const watchOne = (file) => {
+      const rp = resolve(process.cwd(), file);
+      if (watched.has(rp)) return;
+      watched.add(rp);
+      watchFile(rp, regenerate);
+    };
+    const regenerate = () => {
+      paths = rebuildPaths();
+      for (const f of paths) watchOne(f);
+      const okNow = generateAll(paths, options, outputs);
+      if (okNow) process.exitCode = 0;
+    };
+    for (const f of paths) watchOne(f);
+    for (const g of globs) {
+      const base = globBaseDir(g);
+      try {
+        watch(base, { persistent: true, recursive: true }, regenerate);
+      } catch {
+        /* directory watching unsupported here */
+      }
     }
+    console.error(`watching ${[...watched].join(", ")} (ctrl+c to stop)`);
   }
   process.exitCode = ok ? 0 : 1;
 }

@@ -57,3 +57,12 @@ export function expandGlob(pattern, cwd = process.cwd()) {
   walk(resolve(cwd, baseDir), cwd, re, out);
   return out;
 }
+
+export function globBaseDir(pattern, cwd = process.cwd()) {
+  const absPattern = resolve(cwd, pattern).split("\\").join("/");
+  const m = absPattern.search(META);
+  const base = m > -1 ? absPattern.slice(0, m) : absPattern;
+  let baseDir = base.includes("/") ? base.replace(/\/[^\/]*$/, "") : ".";
+  if (baseDir === "") baseDir = ".";
+  return resolve(cwd, baseDir);
+}
