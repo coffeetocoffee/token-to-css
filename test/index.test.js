@@ -6,7 +6,10 @@ import {
   toSCSS,
   toBarefoot,
   convert,
+  buildSourceMap,
+  convertToMap,
 } from "../src/index.js";
+import { parseLocated } from "../src/locate.js";
 import { resolveReferences } from "../src/references.js";
 import { validateTokens, TokenValidationError } from "../src/schema.js";
 import { mergeTokens } from "../src/merge.js";
@@ -187,4 +190,59 @@ test("mergeTokens deep-merges imports with main overriding", () => {
     color: { primary: "#222", bg: "#fff" },
     spacing: { sm: "0.5rem", md: "2rem" },
   });
+});
+
+test("parseLocated records the source line of each leaf token", () => {
+  const text = '{\n  "color": {\n    "primary": "#3b82f6"\n  }\n}\n';
+  const { tree, loc } = parseLocated(text, "tokens.json");
+  assert.equal(tree.color.primary, "#3b82f6");
+  assert.deepEqual(loc["color-primary"], { file: "tokens.json", line: 3 });
+});
+
+test("buildSourceMap emits a v3 source map mapping variables to source lines", () => {
+  const flat = { "color-primary": "#3b82f6" };
+  const css = toCSS(flat);
+  const map = buildSourceMap(
+    css,
+    { "color-primary": { file: "tokens.json", line: 3 } },
+    {
+      format: "css",
+      outputFile: "out.css",
+      sourcesContent: { "tokens.json": "x" },
+    }
+  );
+  assert.equal(map.version, 3);
+  assert.deepEqual(map.sources, ["tokens.json"]);
+  assert.equal(map.sourcesContent[0], "x");
+  // groups: :root { (none), --color-primary (line 2 0-based), } (none)
+  const groups = map.mappings.split(";");
+  assert.equal(groups[1], "AAEA");
+});
+
+test("convertToMap returns css plus a source map", () => {
+  const { css, map } = convertToMap(
+    { color: { primary: "#3b82f6" } },
+    { "color-primary": { file: "tokens.json", line: 3 } },
+    {
+      format: "css",
+      outputFile: "out.css",
+      sourcesContent: { "tokens.json": "x" },
+    }
+  );
+  assert.match(css, /--color-primary/);
+  assert.equal(map.version, 3);
+  assert.equal(map.sources[0], "tokens.json");
+  assert.equal(map.mappings.split(";")[1], "AAEA");
+});
+
+test("buildSourceMap reverses barefoot var names to token paths", () => {
+  const flat = { "color-primary": "#3b82f6" };
+  const css = toBarefoot(flat);
+  const map = buildSourceMap(
+    css,
+    { "color-primary": { file: "tokens.json", line: 3 } },
+    { format: "barefoot", outputFile: "out.css" }
+  );
+  assert.equal(map.sources[0], "tokens.json");
+  assert.ok(map.mappings.split(";").includes("AAEA"));
 });

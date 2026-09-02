@@ -38,6 +38,7 @@ Options:
   -R, --no-resolve      Do not resolve {token} references
   -z, --no-reduce       Keep arithmetic as calc() instead of collapsing it
   -C, --source-comments Emit a /* token.path */ comment above each variable
+  -M, --source-map      Write a `<file>.map` source map alongside each output
   -n, --no-validate     Skip token validation
   -h, --help            Show help
 ```
@@ -88,6 +89,21 @@ emitted as `calc()`:
 
 Use `--no-reduce` to always keep `calc(...)`. Add `--source-comments` to emit
 a `/* token.path */` note above each variable for traceability.
+
+### Source maps
+
+Pass `--source-map` to emit a standard [Source Map](https://sourcemaps.info/)
+(next to each output file, e.g. `theme.css.map`) that points every generated
+CSS variable back to the source token's file and line. Each output gets a
+`/*# sourceMappingURL=… */` footer so editors and devtools can jump straight to
+the originating token.
+
+```bash
+token-to-css tokens.json -o theme.css --source-map
+```
+
+Watch mode also re-globs on every change, so **deleting** a source file drops
+its variables from the output on the next save.
 
 ## Config file
 
@@ -237,4 +253,15 @@ import tokens from "./tokens.json" assert { type: "json" };
 
 validateTokens(tokens);
 const css = convert(tokens, { format: "barefoot" });
+```
+
+`convertToMap(tree, locations, options)` returns `{ css, map }` where `map` is a
+Source Map v3 object. `locations` maps each flat token name (kebab-cased) to
+`{ file, line }`; build it with `parseLocated(text, file).loc`.
+
+```js
+import { convertToMap, parseLocated } from "token-to-css";
+
+const { tree, loc } = parseLocated(fileText, "tokens.json");
+const { css, map } = convertToMap(tree, loc, { format: "css" });
 ```

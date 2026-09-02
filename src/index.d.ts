@@ -38,8 +38,45 @@ export function toBarefoot(
 
 export function convert(tokens: Tokens, options?: ConvertOptions): string;
 
+export interface TokenLocation {
+  file: string;
+  line: number;
+}
+
+export interface SourceMapV3 {
+  version: 3;
+  file?: string;
+  sources: string[];
+  sourcesContent?: (string | null)[];
+  names: string[];
+  mappings: string;
+}
+
+export function buildSourceMap(
+  css: string,
+  locations: Record<string, TokenLocation>,
+  options?: {
+    format?: Format;
+    outputFile?: string;
+    sourcesContent?: Record<string, string>;
+    customMap?: Record<string, string>;
+  }
+): SourceMapV3;
+
+export function convertToMap(
+  tree: Tokens,
+  locations: Record<string, TokenLocation>,
+  options?: ConvertOptions & {
+    outputFile?: string;
+    sourcesContent?: Record<string, string>;
+  }
+): { css: string; map: SourceMapV3 };
+
 export class TokenValidationError extends Error {
   constructor(message: string);
 }
 
 export function validateTokens(tokens: Tokens): true;
+
+export { parseLocated } from "./locate.js";
+export type { TokenLocation } from "./locate.js";

@@ -131,3 +131,23 @@ test("CLI writes multiple outputs with per-output formats", () => {
   }
 });
 
+test("CLI writes a source map with --source-map", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const input = join(dir, "tokens.json");
+    const cssOut = join(dir, "out.css");
+    writeFileSync(input, JSON.stringify({ color: { primary: "#3b82f6" } }));
+    execFileSync("node", [CLI, input, "-o", cssOut, "-M"], {
+      encoding: "utf8",
+    });
+    const css = readFileSync(cssOut, "utf8");
+    const map = JSON.parse(readFileSync(`${cssOut}.map`, "utf8"));
+    assert.match(css, /\/\*# sourceMappingURL=out\.css\.map \*\//);
+    assert.equal(map.version, 3);
+    assert.ok(map.sources[0].endsWith("tokens.json"));
+    assert.ok(map.mappings.length > 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+

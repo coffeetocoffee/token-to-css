@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync, watch, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { convert } from "./index.js";
+import { convert, convertToMap } from "./index.js";
 import { deepMerge } from "./merge.js";
 import { expandGlob, globBaseDir } from "./glob.js";
+import { parseLocated } from "./locate.js";
 
 const REPEATABLE = new Set(["import", "i", "glob", "g", "output", "o"]);
 
@@ -51,6 +52,7 @@ Options:
   -R, --no-resolve      Do not resolve {token} references
   -z, --no-reduce       Keep arithmetic as calc() instead of collapsing it
   -C, --source-comments Emit a /* token.path */ comment above each variable
+  -M, --source-map      Write a <file>.map source map alongside each output file
   -n, --no-validate     Skip token validation
   -h, --help            Show help
 `);
@@ -60,10 +62,22 @@ function readTokensFile(p) {
   return JSON.parse(readFileSync(resolve(process.cwd(), p), "utf8"));
 }
 
-function loadMergedTokens(paths) {
+function readLocated(p) {
+  const text = readFileSync(resolve(process.cwd(), p), "utf8");
+  return { ...parseLocated(text, p), text };
+}
+
+function loadLocated(paths) {
   const merged = {};
-  for (const p of paths) deepMerge(merged, readTokensFile(p));
-  return merged;
+  const loc = {};
+  const sourcesContent = {};
+  for (const p of paths) {
+    const { tree, loc: l, text } = readLocated(p);
+    deepMerge(merged, tree);
+    Object.assign(loc, l);
+    sourcesContent[p] = text;
+  }
+  return { merged, loc, sourcesContent };
 }
 
 function findConfig(explicit) {
@@ -99,16 +113,34 @@ function generateAll(paths, options, outputs) {
     if (options.mapPath) {
       options.map = JSON.parse(readFileSync(options.mapPath, "utf8"));
     }
-    const tokens = loadMergedTokens(paths);
+    const { merged, loc, sourcesContent } = loadLocated(paths);
     for (const out of outputs) {
       const format = out.format || options.format;
-      const css = convert(tokens, { ...options, format });
-      if (out.path) {
-        const outPath = resolve(process.cwd(), out.path);
-        writeFileSync(outPath, css, "utf8");
-        console.error(`wrote ${format} to ${outPath}`);
+      if (options.sourceMap && out.path) {
+        const { css, map } = convertToMap(merged, loc, {
+          ...options,
+          format,
+          outputFile: out.path,
+          sourcesContent,
+        });
+        const mapPath = `${out.path}.map`;
+        writeFileSync(mapPath, JSON.stringify(map, null, 2), "utf8");
+        const base = out.path.split(/[\\/]/).pop();
+        writeFileSync(
+          resolve(process.cwd(), out.path),
+          `${css}/*# sourceMappingURL=${base}.map */\n`,
+          "utf8"
+        );
+        console.error(`wrote ${format} to ${resolve(process.cwd(), out.path)}`);
       } else {
-        process.stdout.write(css);
+        const css = convert(merged, { ...options, format });
+        if (out.path) {
+          const outPath = resolve(process.cwd(), out.path);
+          writeFileSync(outPath, css, "utf8");
+          console.error(`wrote ${format} to ${outPath}`);
+        } else {
+          process.stdout.write(css);
+        }
       }
     }
     return true;
@@ -124,7 +156,8 @@ function watchFile(source, onChange) {
     clearTimeout(timer);
     timer = setTimeout(onChange, 50);
   };
-  watch(source, { persistent: true }, fire);
+  const w = watch(source, { persistent: true }, fire);
+  w.on("error", () => {});
 }
 
 function collect(list) {
@@ -169,6 +202,7 @@ export function run(argv = process.argv.slice(2)) {
   }
   options.reduce = !(args["no-reduce"] || args.z);
   options.sourceComments = Boolean(args["source-comments"] || args.C);
+  options.sourceMap = Boolean(args["source-map"] || args.M);
   options.validate = !(args["no-validate"] || args.n);
 
   const outputsList = collect(args.output || args.o);

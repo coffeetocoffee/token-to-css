@@ -1,6 +1,7 @@
-import { mapToBarefoot } from "./presets/barefoot.js";
+import { mapToBarefoot, BAREFOOT_MAP } from "./presets/barefoot.js";
 import { resolveReferences } from "./references.js";
 import { validateTokens } from "./schema.js";
+export { parseLocated } from "./locate.js";
 
 function kebab(str) {
   return str
@@ -85,3 +86,102 @@ export function convert(
       return toCSS(flat, { selector, sourceComments });
   }
 }
+
+const BASE64 =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function toVLQ(n) {
+  let vlq = n < 0 ? ((-n) << 1) | 1 : n << 1;
+  let out = "";
+  do {
+    let digit = vlq & 31;
+    vlq >>>= 5;
+    if (vlq > 0) digit |= 32;
+    out += BASE64[digit];
+  } while (vlq > 0);
+  return out;
+}
+
+function buildReverseBarefoot(customMap = {}) {
+  const merged = { ...BAREFOOT_MAP, ...customMap };
+  const reverse = {};
+  for (const [token, varName] of Object.entries(merged)) {
+    reverse[varName.replace(/^--/, "")] = token;
+  }
+  return reverse;
+}
+
+export function buildSourceMap(
+  css,
+  locations,
+  { format = "css", outputFile, sourcesContent = {}, customMap = {} } = {}
+) {
+  const reverse = format === "barefoot" ? buildReverseBarefoot(customMap) : null;
+  const sources = [];
+  const sourceContentList = [];
+  function fileIndex(file) {
+    let idx = sources.indexOf(file);
+    if (idx === -1) {
+      idx = sources.length;
+      sources.push(file);
+      sourceContentList.push(
+        sourcesContent[file] != null ? sourcesContent[file] : null
+      );
+    }
+    return idx;
+  }
+  const varRe = format === "scss" ? /^\s*\$([\w-]+)\s*:/ : /^\s*--([\w-]+)\s*:/;
+  const groups = css.split("\n").map((line) => {
+    const m = line.match(varRe);
+    if (!m) return "";
+    let flatName = m[1];
+    if (format === "barefoot") {
+      const rev = reverse[flatName];
+      if (!rev) return "";
+      flatName = rev;
+    }
+    const loc = locations[flatName];
+    if (!loc) return "";
+    const si = fileIndex(loc.file);
+    return toVLQ(0) + toVLQ(si) + toVLQ(loc.line - 1) + toVLQ(0);
+  });
+  return {
+    version: 3,
+    file: outputFile || "output.css",
+    sources,
+    sourcesContent: sourceContentList,
+    names: [],
+    mappings: groups.join(";"),
+  };
+}
+
+export function convertToMap(tree, locations, options = {}) {
+  const {
+    format = "css",
+    theme,
+    selector,
+    map,
+    resolve = true,
+    reduce = true,
+    validate = true,
+    sourceComments = false,
+    outputFile,
+    sourcesContent = {},
+  } = options;
+  if (validate) validateTokens(tree);
+  const resolved = resolve ? resolveReferences(tree, { reduce }) : tree;
+  const flat = flattenTokens(resolved);
+  let css;
+  if (format === "scss") css = toSCSS(flat, { sourceComments });
+  else if (format === "barefoot")
+    css = toBarefoot(flat, { theme, selector, map, sourceComments });
+  else css = toCSS(flat, { selector, sourceComments });
+  const sourceMap = buildSourceMap(css, locations, {
+    format,
+    outputFile,
+    sourcesContent,
+    customMap: map,
+  });
+  return { css, map: sourceMap };
+}
+
