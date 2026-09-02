@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync, watch, existsSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve } from "node:path";
 import { convert } from "./index.js";
-import { mergeTokens } from "./merge.js";
+import { deepMerge } from "./merge.js";
+import { expandGlob } from "./glob.js";
 
 function parseArgs(argv) {
   const args = { _: [] };
@@ -15,7 +16,7 @@ function parseArgs(argv) {
     const key = a.replace(/^-+/, "");
     const next = argv[i + 1];
     if (next && !next.startsWith("-")) {
-      if (key === "import" || key === "i") {
+      if (key === "import" || key === "i" || key === "glob" || key === "g") {
         if (!args[key]) args[key] = [];
         if (Array.isArray(args[key])) args[key].push(next);
         else args[key] = [args[key], next];
@@ -43,12 +44,23 @@ Options:
   -t, --theme <name>    barefoot only: wrap in [data-bf-theme="name"]
   -m, --map <file>      barefoot only: JSON file mapping token names to vars
   -i, --import <file>   Merge additional token files (repeatable)
+  -g, --glob <pattern>  Merge files matching a glob (repeatable)
   -c, --config <file>   Config file with default options (default: auto-detect)
-  -w, --watch           Re-generate whenever the input file changes
+  -w, --watch           Re-generate whenever an input file changes
   -R, --no-resolve      Do not resolve {token} references
   -n, --no-validate     Skip token validation
   -h, --help            Show help
 `);
+}
+
+function readTokensFile(p) {
+  return JSON.parse(readFileSync(resolve(process.cwd(), p), "utf8"));
+}
+
+function loadMergedTokens(paths) {
+  const merged = {};
+  for (const p of paths) deepMerge(merged, readTokensFile(p));
+  return merged;
 }
 
 function findConfig(explicit) {
@@ -58,7 +70,7 @@ function findConfig(explicit) {
     throw new Error(`config file not found: ${p}`);
   }
   for (const name of ["token-to-css.config.json", ".token-to-cssrc"]) {
-    const p = join(process.cwd(), name);
+    const p = resolve(process.cwd(), name);
     if (existsSync(p)) return p;
   }
   return null;
@@ -69,20 +81,12 @@ function loadConfig(configPath) {
   return JSON.parse(readFileSync(configPath, "utf8"));
 }
 
-function loadMergedTokens(source, importPaths) {
-  const main = JSON.parse(readFileSync(source, "utf8"));
-  const imports = importPaths.map((p) =>
-    JSON.parse(readFileSync(resolve(process.cwd(), p), "utf8"))
-  );
-  return mergeTokens(main, imports);
-}
-
-function generate(source, options, output) {
+function generate(paths, options, output) {
   try {
     if (options.mapPath) {
       options.map = JSON.parse(readFileSync(options.mapPath, "utf8"));
     }
-    const tokens = loadMergedTokens(source, options.imports || []);
+    const tokens = loadMergedTokens(paths);
     const css = convert(tokens, options);
     if (output) {
       const outPath = resolve(process.cwd(), output);
@@ -107,62 +111,60 @@ function watchFile(source, onChange) {
   watch(source, { persistent: true }, fire);
 }
 
+function collect(list) {
+  if (!list) return [];
+  return Array.isArray(list) ? list : [list];
+}
+
 export function run(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   if (args.help) {
     printHelp();
     return 0;
   }
-  const input = args._[0];
-  if (!input) {
-    console.error("error: no input file provided. Use --help for usage.");
-    return 1;
-  }
-  const source = resolve(process.cwd(), input);
+
   const configPath = findConfig(args.config || args.c);
   const config = loadConfig(configPath);
   if (configPath) console.error(`using config ${configPath}`);
-  const cliImports = args.import || args.i;
-  const cliList = cliImports
-    ? Array.isArray(cliImports)
-      ? cliImports
-      : [cliImports]
-    : [];
-  const cfgList = config.imports
-    ? Array.isArray(config.imports)
-      ? config.imports
-      : [config.imports]
-    : [];
-  const options = {
-    format: args.format || args.f || config.format || "css",
-  };
-  options.imports = [...cfgList, ...cliList];
+
+  const imports = [
+    ...collect(config.imports),
+    ...collect(args.import || args.i),
+  ];
+  const globs = [...collect(config.glob), ...collect(args.glob || args.g)];
+  const globFiles = globs.flatMap((g) => expandGlob(g));
+
+  const input = args._[0];
+  if (!input && imports.length === 0 && globFiles.length === 0) {
+    console.error("error: no input file provided. Use --help for usage.");
+    return 1;
+  }
+
+  const paths = [...(input ? [input] : []), ...imports, ...globFiles];
+
+  const options = { format: args.format || args.f || config.format || "css" };
   if (args.selector || args.s) options.selector = args.selector || args.s;
   else if (config.selector) options.selector = config.selector;
   if (args.theme || args.t) options.theme = args.theme || args.t;
   else if (config.theme) options.theme = config.theme;
-  if (args.map || args.m) {
-    options.mapPath = resolve(process.cwd(), args.map || args.m);
-  } else if (config.map) {
-    options.mapPath = resolve(process.cwd(), config.map);
-  }
-  const output = args.output || args.o;
+  if (args.map || args.m) options.mapPath = resolve(process.cwd(), args.map || args.m);
+  else if (config.map) options.mapPath = resolve(process.cwd(), config.map);
   if (args["no-resolve"] === undefined && args.R === undefined) {
     options.resolve = true;
   } else {
     options.resolve = false;
   }
   options.validate = !(args["no-validate"] || args.n);
-  const ok = generate(source, options, output);
+
+  const output = args.output || args.o || config.output;
+  const ok = generate(paths, options, output);
+
   if (args.watch || args.w) {
-    const all = [
-      source,
-      ...options.imports.map((p) => resolve(process.cwd(), p)),
-    ];
-    console.error(`watching ${all.join(", ")} (ctrl+c to stop)`);
-    for (const file of all) {
+    const watchPaths = paths.map((p) => resolve(process.cwd(), p));
+    console.error(`watching ${watchPaths.join(", ")} (ctrl+c to stop)`);
+    for (const file of watchPaths) {
       watchFile(file, () => {
-        const okNow = generate(source, options, output);
+        const okNow = generate(paths, options, output);
         if (okNow) process.exitCode = 0;
       });
     }

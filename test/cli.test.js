@@ -90,3 +90,20 @@ test("CLI loads token-to-css.config.json for defaults", () => {
   }
 });
 
+test("CLI merges --glob files", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const a = join(dir, "a.tokens.json");
+    const b = join(dir, "b.tokens.json");
+    writeFileSync(a, JSON.stringify({ color: { primary: "#111" } }));
+    writeFileSync(b, JSON.stringify({ color: { bg: "#fff" } }));
+    const out = execFileSync("node", [CLI, "--glob", join(dir, "*.tokens.json")], {
+      encoding: "utf8",
+    });
+    assert.match(out, /--color-primary: #111;/);
+    assert.match(out, /--color-bg: #fff;/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+

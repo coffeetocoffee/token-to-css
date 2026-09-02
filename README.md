@@ -32,6 +32,7 @@ Options:
   -t, --theme <name>    barefoot only: wrap in [data-bf-theme="name"]
   -m, --map <file>      barefoot only: JSON file mapping token names to vars
   -i, --import <file>   Merge additional token files (repeatable)
+  -g, --glob <pattern>  Merge files matching a glob (repeatable)
   -c, --config <file>   Config file with default options (default: auto-detect)
   -w, --watch           Re-generate whenever the input file changes
   -R, --no-resolve      Do not resolve {token} references
@@ -52,6 +53,12 @@ earlier, the main input wins last:
 
 ```bash
 token-to-css tokens.json --import colors.json --import spacing.json -o theme.css
+```
+
+Glob patterns are also supported via `--glob` (repeatable):
+
+```bash
+token-to-css --glob "src/**/*.tokens.json" -o theme.css
 ```
 
 ## Config file
