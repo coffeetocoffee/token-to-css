@@ -3,6 +3,14 @@
   "version": "1.0.0",
   "description": "Convert design token JSON files into framework-agnostic CSS (custom properties, SCSS, or barefoot-css).",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coffeetocoffee/token-to-css.git"
+  },
+  "homepage": "https://github.com/coffeetocoffee/token-to-css#readme",
+  "bugs": {
+    "url": "https://github.com/coffeetocoffee/token-to-css/issues"
+  },
   "bin": {
     "token-to-css": "src/cli.js"
   },
