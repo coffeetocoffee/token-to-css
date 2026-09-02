@@ -9,6 +9,7 @@ import {
 } from "../src/index.js";
 import { resolveReferences } from "../src/references.js";
 import { validateTokens, TokenValidationError } from "../src/schema.js";
+import { mergeTokens } from "../src/merge.js";
 
 test("flattenTokens flattens nested objects with kebab-case keys", () => {
   const flat = flattenTokens({
@@ -150,4 +151,15 @@ test("validateTokens passes valid tokens", () => {
     validateTokens({ color: { primary: "#000" }, n: 1, flag: true }),
     true
   );
+});
+
+test("mergeTokens deep-merges imports with main overriding", () => {
+  const merged = mergeTokens(
+    { color: { primary: "#222" }, spacing: { md: "2rem" } },
+    [{ color: { primary: "#111", bg: "#fff" }, spacing: { sm: "0.5rem" } }]
+  );
+  assert.deepEqual(merged, {
+    color: { primary: "#222", bg: "#fff" },
+    spacing: { sm: "0.5rem", md: "2rem" },
+  });
 });

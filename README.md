@@ -26,7 +26,12 @@ Options:
   -f, --format <name>   css | scss | barefoot  (default: css)
   -s, --selector <sel>  CSS selector for variables (default: :root)
   -t, --theme <name>    barefoot only: wrap in [data-bf-theme="name"]
+  -m, --map <file>      barefoot only: JSON file mapping token names to vars
+  -i, --import <file>   Merge additional token files (repeatable)
+  -c, --config <file>   Config file with default options (default: auto-detect)
   -w, --watch           Re-generate whenever the input file changes
+  -R, --no-resolve      Do not resolve {token} references
+  -n, --no-validate     Skip token validation
   -h, --help            Show help
 ```
 
@@ -35,6 +40,30 @@ Watch mode regenerates the output on every save:
 ```bash
 token-to-css tokens.json -o theme.css -w
 ```
+
+## Multi-file tokens
+
+Merge additional files with `--import` (repeatable). Later files override
+earlier, the main input wins last:
+
+```bash
+token-to-css tokens.json --import colors.json --import spacing.json -o theme.css
+```
+
+## Config file
+
+Place `token-to-css.config.json` (or `.token-to-cssrc`) in the project root
+to set defaults:
+
+```json
+{
+  "format": "barefoot",
+  "theme": "brand",
+  "imports": ["colors.json", "spacing.json"]
+}
+```
+
+CLI flags override config. Watch mode also watches imported files.
 
 ## Barefoot-css preset
 
