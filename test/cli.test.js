@@ -349,3 +349,64 @@ test("CLI --diff prints a token diff and exits", () => {
   }
 });
 
+test("CLI reads a v2 config (version: 2) with outputs", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const input = join(dir, "tokens.json");
+    const output = join(dir, "out.css");
+    writeFileSync(input, JSON.stringify({ color: { primary: "#3b82f6" } }));
+    writeFileSync(
+      join(dir, "token-to-css.config.json"),
+      JSON.stringify({
+        version: 2,
+        inputs: ["tokens.json"],
+        outputs: [{ format: "css", file: "out.css" }],
+      })
+    );
+    execFileSync("node", [CLI], { cwd: dir, encoding: "utf8" });
+    const css = readFileSync(output, "utf8");
+    assert.match(css, /--color-primary: #3b82f6;/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI rejects a v2 config with an unknown key", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const input = join(dir, "tokens.json");
+    writeFileSync(input, JSON.stringify({ color: { primary: "#3b82f6" } }));
+    writeFileSync(
+      join(dir, "token-to-css.config.json"),
+      JSON.stringify({ version: 2, bogusKey: true, inputs: ["tokens.json"], outputs: [{ file: "out.css" }] })
+    );
+    assert.throws(() =>
+      execFileSync("node", [CLI], { cwd: dir, encoding: "utf8" })
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI rejects a v2 config using output and outputs together", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const input = join(dir, "tokens.json");
+    writeFileSync(input, JSON.stringify({ color: { primary: "#3b82f6" } }));
+    writeFileSync(
+      join(dir, "token-to-css.config.json"),
+      JSON.stringify({
+        version: 2,
+        inputs: ["tokens.json"],
+        output: "out.css",
+        outputs: [{ file: "out2.css" }],
+      })
+    );
+    assert.throws(() =>
+      execFileSync("node", [CLI], { cwd: dir, encoding: "utf8" })
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+

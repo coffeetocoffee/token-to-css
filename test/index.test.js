@@ -11,9 +11,10 @@ import {
   normalizeW3C,
   applyMap,
   diffTokens,
+  registerFormat,
 } from "../src/index.js";
 import { parseLocated } from "../src/locate.js";
-import { resolveReferences } from "../src/references.js";
+import { resolveReferences, registerFunction } from "../src/references.js";
 import { validateTokens, TokenValidationError } from "../src/schema.js";
 import { mergeTokens } from "../src/merge.js";
 
@@ -423,4 +424,45 @@ test("diffTokens reports added/removed/changed", () => {
   assert.deepEqual(d.added, { c: "4" });
   assert.deepEqual(d.removed, {});
   assert.deepEqual(d.changed, { b: { from: "2", to: "3" } });
+});
+
+test("parser honors parentheses and precedence", () => {
+  assert.equal(
+    resolveReferences({ a: "(1rem + 2rem) * 2" }).a,
+    "6rem"
+  );
+  assert.equal(resolveReferences({ a: "1rem + 2rem * 3" }).a, "7rem");
+});
+
+test("parser passes unknown CSS functions through", () => {
+  assert.equal(
+    resolveReferences({ c: "var(--brand)" }).c,
+    "var(--brand)"
+  );
+});
+
+test("parser evaluates rgb and hsl color functions", () => {
+  assert.equal(resolveReferences({ c: "rgb(59, 130, 246)" }).c, "#3b82f6");
+  assert.equal(resolveReferences({ c: "hsl(0, 100%, 50%)" }).c, "#ff0000");
+});
+
+test("parser chains nested function calls", () => {
+  const r = resolveReferences({
+    w: "#ffffff",
+    d: "darken({w}, 20%)",
+    m: "mix({d}, #000000, 50%)",
+  });
+  assert.equal(r.d, "#cccccc");
+  assert.equal(r.m, "#666666");
+});
+
+test("registerFunction adds a custom reference function", () => {
+  registerFunction("double", (args) => String(args[0].value * 2));
+  assert.equal(resolveReferences({ x: "double(4)" }).x, "8");
+});
+
+test("registerFormat registers a custom output format", () => {
+  registerFormat("uppercase", (flat) => Object.keys(flat).join(","));
+  const out = convert({ color: { primary: "#fff" } }, { format: "uppercase" });
+  assert.match(out, /color-primary/);
 });

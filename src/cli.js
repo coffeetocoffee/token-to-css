@@ -112,9 +112,89 @@ function findConfig(explicit) {
   return null;
 }
 
+const CONFIG_V2_KEYS = new Set([
+  "version",
+  "format",
+  "selector",
+  "theme",
+  "map",
+  "preset",
+  "presets",
+  "brand",
+  "port",
+  "modes",
+  "inputs",
+  "imports",
+  "glob",
+  "output",
+  "outputs",
+]);
+
+function validateConfigV2(raw) {
+  for (const key of Object.keys(raw)) {
+    if (!CONFIG_V2_KEYS.has(key))
+      throw new Error(`unknown config key in v2 schema: "${key}"`);
+  }
+  if (raw.output && raw.outputs)
+    throw new Error('config v2: use "output" or "outputs", not both');
+  if (raw.outputs != null && !Array.isArray(raw.outputs))
+    throw new Error('config v2: "outputs" must be an array');
+  if (raw.outputs) {
+    for (const o of raw.outputs) {
+      if (typeof o === "string") continue;
+      if (!o || typeof o.file !== "string")
+        throw new Error('config v2: each output needs a "file"');
+      if (o.format != null && typeof o.format !== "string")
+        throw new Error("config v2: output.format must be a string");
+    }
+  }
+  if (raw.inputs != null && !Array.isArray(raw.inputs))
+    throw new Error('config v2: "inputs" must be an array');
+}
+
+function normalizeConfig(raw) {
+  if (!raw || typeof raw !== "object") return {};
+  const version = raw.version ?? 1;
+  if (version === 1) return raw;
+  if (version !== 2)
+    throw new Error(`unsupported config version: ${version}`);
+  validateConfigV2(raw);
+  const cfg = {};
+  if (raw.format) cfg.format = raw.format;
+  if (raw.selector) cfg.selector = raw.selector;
+  if (raw.theme) cfg.theme = raw.theme;
+  if (raw.map) cfg.map = raw.map;
+  if (raw.preset) cfg.preset = raw.preset;
+  if (raw.presets) cfg.preset = Array.isArray(raw.presets) ? raw.presets[0] : raw.presets;
+  if (raw.brand) cfg.brand = raw.brand;
+  if (raw.port) cfg.port = raw.port;
+  if (raw.modes) cfg.modes = raw.modes;
+  if (raw.imports) cfg.imports = raw.imports;
+  if (raw.inputs) cfg.imports = raw.inputs;
+  if (raw.glob) cfg.glob = raw.glob;
+  if (raw.output && !raw.outputs) cfg.output = raw.output;
+  if (raw.outputs)
+    cfg.output = raw.outputs.map((o) =>
+      typeof o === "string" ? o : `${o.format || "css"}:${o.file}`
+    );
+  return cfg;
+}
+
 function loadConfig(configPath) {
   if (!configPath) return {};
-  return JSON.parse(readFileSync(configPath, "utf8"));
+  return normalizeConfig(JSON.parse(readFileSync(configPath, "utf8")));
+}
+
+function readPackageConfig() {
+  const p = resolve(process.cwd(), "package.json");
+  if (!existsSync(p)) return null;
+  try {
+    const pkg = JSON.parse(readFileSync(p, "utf8"));
+    if (pkg && pkg.tokenToCss) return normalizeConfig(pkg.tokenToCss);
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function parseOutputs(list, defaultFormat) {
@@ -277,7 +357,11 @@ export function run(argv = process.argv.slice(2)) {
   }
 
   const configPath = findConfig(args.config || args.c);
-  const config = loadConfig(configPath);
+  let config = loadConfig(configPath);
+  if (!configPath) {
+    const pkgConfig = readPackageConfig();
+    if (pkgConfig) config = pkgConfig;
+  }
   if (configPath) console.error(`using config ${configPath}`);
 
   const imports = [

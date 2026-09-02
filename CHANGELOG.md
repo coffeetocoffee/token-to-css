@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-02
+
+### Changed
+- **Node 20+ required** (dropped Node 18).
+- **New reference parser**: replaced the spaced-operator heuristic with a real
+  tokenizer/parser supporting parentheses, precedence, nested/chained function
+  calls, and unknown CSS functions (e.g. `var(--x)`) passed through verbatim.
+- Internal restructure into a `core` + plugin model (single package).
+
+### Added
+- **Plugin / transform API**: `registerFunction(name, fn)`, `registerFormat(name, fn)`,
+  and `registerPlugin({ name, functions, formats })` let consumers add custom
+  reference functions and output formats.
+- **Config schema v2**: `token-to-css.config.json` / `.token-to-cssrc` /
+  `package.json#tokenToCss` with `version: 2`, `inputs`, `outputs` (`[{format,file}]`),
+  `presets`, validated with migration from the legacy shape.
+- Built-in `rgb()` and `hsl()` color functions.
+- 80 tests passing on Node 20/22.
+
+### Notes
+- Valid token files produce identical output to 1.x; only internal evaluation
+  semantics changed. Use `--strict` to turn unit mismatches into hard errors.
+
 ## [1.5.0] - 2026-09-02
 
 ### Added
@@ -118,7 +141,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v1.5.0...v2.0.0
 [1.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v1.0.0...v1.5.0
 [1.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v0.6.0...v1.0.0
 [0.6.0]: https://github.com/coffeetocoffee/token-to-css/compare/v0.5.0...v0.6.0

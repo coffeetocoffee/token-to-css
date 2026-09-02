@@ -108,5 +108,15 @@ export interface TokenDiff {
 
 export function diffTokens(a: Tokens, b: Tokens): TokenDiff;
 
+export interface Plugin {
+  name?: string;
+  functions?: Record<string, (args: any[], ctx: any) => string>;
+  formats?: Record<string, (flat: Record<string, string>, opts: any) => string>;
+}
+
+export function registerFunction(name: string, fn: (args: any[], ctx: any) => string): void;
+export function registerFormat(name: string, fn: (flat: Record<string, string>, opts: any) => string): void;
+export function registerPlugin(plugin: Plugin): Plugin;
+
 export { parseLocated } from "./locate.js";
 export type { TokenLocation } from "./locate.js";

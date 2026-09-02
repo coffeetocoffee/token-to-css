@@ -1,12 +1,32 @@
 import { mapToBarefoot, BAREFOOT_MAP } from "./presets/barefoot.js";
 import { TAILWIND_MAP } from "./presets/tailwind.js";
 import { OPENPROPS_MAP } from "./presets/open-props.js";
-import { resolveReferences } from "./references.js";
+import { resolveReferences, registerFunction } from "./references.js";
 import { validateTokens, TokenValidationError } from "./schema.js";
 import { deepMerge } from "./merge.js";
 export { parseLocated } from "./locate.js";
-export { resolveReferences } from "./references.js";
+export { resolveReferences, registerFunction } from "./references.js";
 export { validateTokens, TokenValidationError } from "./schema.js";
+
+const registeredFormats = {};
+
+export function registerFormat(name, fn) {
+  registeredFormats[name.toLowerCase()] = fn;
+}
+
+export function registerPlugin(plugin) {
+  if (!plugin || typeof plugin !== "object")
+    throw new Error("registerPlugin expects a plugin object");
+  if (plugin.name && typeof plugin.name !== "string")
+    throw new Error("plugin.name must be a string");
+  if (plugin.functions)
+    for (const [name, fn] of Object.entries(plugin.functions))
+      registerFunction(name, fn);
+  if (plugin.formats)
+    for (const [name, fn] of Object.entries(plugin.formats))
+      registerFormat(name, fn);
+  return plugin;
+}
 
 function kebab(str) {
   return str
@@ -289,6 +309,13 @@ function buildOutput(tokens, options = {}) {
     css = `${JSON.stringify(toSchema(baseTree), null, 2)}\n`;
   } else if (opts.format === "report") {
     css = renderReport(resolvedBase, modeDefs, opts);
+  } else if (opts.format && registeredFormats[opts.format]) {
+    css = registeredFormats[opts.format](baseOut, {
+      ...opts,
+      customMap,
+      resolvedBase,
+      modeDefs,
+    });
   } else {
     css = blocks
       .map((b) =>

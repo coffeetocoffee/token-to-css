@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![npm downloads](https://img.shields.io/npm/dm/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v1.0.0](https://img.shields.io/badge/phase-1.0.0%20%E2%80%94%20stable-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v2.0.0](https://img.shields.io/badge/phase-2.0.0%20%E2%80%94%20major-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 ## Install
@@ -14,7 +14,7 @@
 npm install -g token-to-css
 ```
 
-Or run directly with Node 18+:
+Or run directly with Node 20+:
 
 ```bash
 node src/cli.js tokens.json -o output.css
@@ -102,23 +102,24 @@ outputs on `http://localhost:4173` for quick visual inspection.
 
 ## Stability & SemVer
 
-`token-to-css` is **1.0.0**: the public surface is frozen and follows Semantic
-Versioning.
+`token-to-css` follows **Semantic Versioning**.
 
 - **CLI flags** listed above are stable. Removing or renaming a flag will only
   happen in a major version, and will be preceded by a deprecation period with a
   runtime warning.
 - **Library API**: `convert`, `convertToMap`, `flattenTokens`, `normalizeW3C`,
   `applyMap`, `toCSS` / `toSCSS` / `toBarefoot` / `toCSSModules`,
-  `buildSourceMap`, `resolveReferences`, `validateTokens`, `parseLocated`, and the
-  TypeScript types are part of the supported contract. Breaking changes to these
-  require a major version bump.
+  `buildSourceMap`, `resolveReferences`, `registerFunction`, `registerFormat`,
+  `registerPlugin`, `validateTokens`, `parseLocated`, and the TypeScript types are
+  part of the supported contract. Breaking changes to these require a major
+  version bump.
 - **Output shape**: CSS variable names, selectors, and the Source Map v3 format
   are stable. New output formats are added in minor versions and never change
   existing ones.
-- **Node support**: Node 18+ LTS. We run the test suite on Node 18, 20, and 22.
+- **Node support**: Node 20+. We run the test suite on Node 20 and 22.
 
-No flags are deprecated at this time.
+2.0.0 was a major release (Node 20+ required; new expression parser). See
+[CHANGELOG.md](./CHANGELOG.md) for details.
 
 ### Output formats
 
@@ -465,3 +466,60 @@ import { convertToMap, parseLocated } from "token-to-css";
 const { tree, loc } = parseLocated(fileText, "tokens.json");
 const { css, map } = convertToMap(tree, loc, { format: "css" });
 ```
+
+## Extending with plugins
+
+`token-to-css` v2 exposes a plugin API for custom reference functions and custom
+output formats (the package stays a single module — no scoped publish).
+
+```js
+import { registerPlugin, registerFunction, registerFormat, convert } from "token-to-css";
+
+// a custom reference function usable in tokens: contrast({color.fg}, {color.bg})
+registerFunction("contrast", (args) => (args[0].value > args[1].value ? "dark" : "light"));
+
+// a custom output format selected with --format myfmt
+registerFormat("myfmt", (flat, opts) =>
+  Object.entries(flat).map(([k, v]) => `${k}: ${v};`).join("\n")
+);
+
+// or all at once
+registerPlugin({
+  name: "acme",
+  functions: { ramp: (args) => `/* ${args[0].value} */` },
+  formats: { acme: (flat) => JSON.stringify(flat) },
+});
+
+convert(tokens, { format: "myfmt" });
+```
+
+Registered functions receive an array of already-evaluated argument values
+(`{ kind: "num", value, unit }` or `{ kind: "str", value }`) and must return a
+string. Registered formats receive the flat `name -> value` map and the options.
+
+## Config file (v2)
+
+Auto-detected from `token-to-css.config.json` / `.token-to-cssrc` / the
+`tokenToCss` key in `package.json`. v2 adds a structured schema with validation
+and migration from the legacy (version-less) shape:
+
+```json
+{
+  "version": 2,
+  "inputs": ["tokens.json"],
+  "outputs": [{ "format": "css", "file": "theme.css" }],
+  "preset": "tailwind",
+  "modes": ["dark"],
+  "brand": "acme"
+}
+```
+
+## Breaking changes in 2.0
+
+- **Node 20+ is now required** (dropped Node 18).
+- The reference evaluator was replaced by a real expression parser. Valid token
+  files produce identical output, but the internal heuristics changed; arithmetic
+  with mismatched units now falls back to `calc()` (or errors under `--strict`),
+  and parenthesized / nested expressions are fully supported.
+- The package is internally restructured into a `core` + plugin model; the public
+  API (`convert`, `convertToMap`, `registerPlugin`, …) is unchanged.
