@@ -107,6 +107,7 @@ function selectorForBase(options) {
     if (options.theme) return `[data-bf-theme="${options.theme}"]`;
     return options.selector || ":root";
   }
+  if (options.format === "tailwind") return "@theme";
   return options.selector || ":root";
 }
 
@@ -116,7 +117,7 @@ function modeSelector(base, mode) {
 
 function customMapFor(options) {
   if (options.format === "barefoot") return { ...BAREFOOT_MAP, ...(options.map || {}) };
-  if (options.preset === "tailwind") return TAILWIND_MAP;
+  if (options.format === "tailwind" || options.preset === "tailwind") return TAILWIND_MAP;
   if (options.preset === "open-props") return OPENPROPS_MAP;
   return null;
 }
@@ -147,6 +148,80 @@ function renderJSON(resolvedBase, modeDefs, options) {
   return `${JSON.stringify(out, null, 2)}\n`;
 }
 
+function toStyleDictionary(tree) {
+  function walk(node) {
+    if (node && typeof node === "object" && !Array.isArray(node)) {
+      const out = {};
+      for (const [k, v] of Object.entries(node)) out[k] = walk(v);
+      return out;
+    }
+    return { value: node };
+  }
+  return walk(tree);
+}
+
+function typeOf(node) {
+  if (typeof node === "number") return "number";
+  if (typeof node === "boolean") return "boolean";
+  return "string";
+}
+
+function toSchema(tree, rootName = "Tokens") {
+  function walk(node) {
+    if (node && typeof node === "object" && !Array.isArray(node)) {
+      const properties = {};
+      for (const [k, v] of Object.entries(node)) properties[k] = walk(v);
+      return { type: "object", additionalProperties: false, properties };
+    }
+    return { type: typeOf(node) };
+  }
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    title: rootName,
+    ...walk(tree),
+  };
+}
+
+function toMarkdownRows(tree, prefix = "") {
+  const rows = [];
+  for (const [key, value] of Object.entries(tree)) {
+    const name = prefix ? `${prefix}.${key}` : key;
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      rows.push(...toMarkdownRows(value, name));
+    } else {
+      rows.push(`| \`${name}\` | ${value} |`);
+    }
+  }
+  return rows;
+}
+
+function toMarkdown(tree, prefix = "") {
+  return toMarkdownRows(tree, prefix).join("\n") + "\n";
+}
+
+function renderReport(resolvedBase, modeDefs, options) {
+  let md = "# Token Report\n\n";
+  md += "| Token | Value |\n| --- | --- |\n";
+  md += toMarkdown(resolvedBase);
+  if (modeDefs) {
+    const requested =
+      options.modes && options.modes.length
+        ? options.modes
+        : Object.keys(modeDefs);
+    for (const m of requested) {
+      if (!modeDefs[m]) continue;
+      const merged = structuredClone(resolvedBase);
+      deepMerge(merged, modeDefs[m]);
+      const r = options.resolve
+        ? resolveReferences(merged, { reduce: options.reduce })
+        : merged;
+      md += `\n## mode: ${m}\n\n| Token | Value |\n| --- | --- |\n`;
+      md += toMarkdown(r);
+    }
+  }
+  return md;
+}
+
 function buildOutput(tokens, options = {}) {
   const opts = {
     format: "css",
@@ -166,8 +241,18 @@ function buildOutput(tokens, options = {}) {
     delete baseTree[modeKey];
   }
 
+  const brandKey = tree.brands ? "brands" : tree.brand ? "brand" : null;
+  const brandDefs = brandKey ? tree[brandKey] : null;
+  if (brandKey) {
+    baseTree = structuredClone(baseTree);
+    delete baseTree[brandKey];
+    if (options.brand && brandDefs[options.brand]) {
+      deepMerge(baseTree, brandDefs[options.brand]);
+    }
+  }
+
   const resolvedBase = opts.resolve
-    ? resolveReferences(baseTree, { reduce: opts.reduce })
+    ? resolveReferences(baseTree, { reduce: opts.reduce, strict: opts.strict })
     : baseTree;
   const baseFlat = flattenTokens(resolvedBase);
   const customMap = customMapFor(opts);
@@ -184,7 +269,7 @@ function buildOutput(tokens, options = {}) {
       const merged = structuredClone(baseTree);
       deepMerge(merged, modeDefs[m]);
       const r = opts.resolve
-        ? resolveReferences(merged, { reduce: opts.reduce })
+        ? resolveReferences(merged, { reduce: opts.reduce, strict: opts.strict })
         : merged;
       const f = mapFlat(flattenTokens(r), opts, customMap);
       blocks.push({ selector: modeSelector(baseSelector, m), flat: f });
@@ -198,6 +283,12 @@ function buildOutput(tokens, options = {}) {
     css = toCSSModules(baseOut, { sourceComments: opts.sourceComments });
   } else if (opts.format === "json") {
     css = renderJSON(resolvedBase, modeDefs, opts);
+  } else if (opts.format === "style-dictionary") {
+    css = `${JSON.stringify(toStyleDictionary(resolvedBase), null, 2)}\n`;
+  } else if (opts.format === "schema") {
+    css = `${JSON.stringify(toSchema(baseTree), null, 2)}\n`;
+  } else if (opts.format === "report") {
+    css = renderReport(resolvedBase, modeDefs, opts);
   } else {
     css = blocks
       .map((b) =>
@@ -214,6 +305,23 @@ function buildOutput(tokens, options = {}) {
 
 export function convert(tokens, options = {}) {
   return buildOutput(tokens, options).css;
+}
+
+export function diffTokens(a, b) {
+  const fa = flattenTokens(
+    resolveReferences(normalizeW3C(a), { reduce: true })
+  );
+  const fb = flattenTokens(
+    resolveReferences(normalizeW3C(b), { reduce: true })
+  );
+  const added = {};
+  const removed = {};
+  const changed = {};
+  for (const [k, v] of Object.entries(fb)) if (!(k in fa)) added[k] = v;
+  for (const [k, v] of Object.entries(fa)) if (!(k in fb)) removed[k] = v;
+  for (const [k, v] of Object.entries(fb))
+    if (k in fa && fa[k] !== v) changed[k] = { from: fa[k], to: v };
+  return { added, removed, changed };
 }
 
 const BASE64 =

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync, watch, existsSync } from "node:fs";
+import { createServer } from "node:http";
 import { resolve } from "node:path";
-import { convert, convertToMap } from "./index.js";
+import { convert, convertToMap, diffTokens } from "./index.js";
 import { deepMerge } from "./merge.js";
 import { expandGlob, globBaseDir } from "./glob.js";
 import { parseLocated } from "./locate.js";
@@ -46,7 +47,7 @@ Usage:
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); prefix format, e.g. scss:out.scss
-  -f, --format <name>   css | scss | barefoot  (default: css)
+  -f, --format <name>   css | scss | barefoot | css-modules | json | tailwind | style-dictionary | schema | report  (default: css)
   -s, --selector <sel>  CSS selector for variables (default: :root)
   -t, --theme <name>    barefoot only: wrap in [data-bf-theme="name"]
   -m, --map <file>      barefoot only: JSON file mapping token names to vars
@@ -54,10 +55,15 @@ Options:
   -g, --glob <pattern>  Merge files matching a glob (repeatable)
   -c, --config <file>   Config file with default options (default: auto-detect)
   -w, --watch           Re-generate whenever an input file changes
+  -B, --brand <name>    Apply a named brand override from a \`brands\`/\`brand\` key
   -R, --no-resolve      Do not resolve {token} references
   -z, --no-reduce       Keep arithmetic as calc() instead of collapsing it
   -C, --source-comments Emit a /* token.path */ comment above each variable
   -M, --source-map      Write a <file>.map source map alongside each output file
+  --strict              Fail on arithmetic with mismatched units (no calc() fallback)
+  --diff <a> <b>       Print a token diff report for two token files, then exit
+  --serve              Serve generated outputs on a local HTTP server (with -w)
+  --port <n>           Port for --serve (default: 4173)
   -n, --no-validate     Skip token validation
   -h, --help            Show help
 `);
@@ -116,9 +122,17 @@ function parseOutputs(list, defaultFormat) {
     const m = /^([a-z-]+):(.+)$/i.exec(spec);
     if (
       m &&
-      ["css", "scss", "barefoot", "css-modules", "json"].includes(
-        m[1].toLowerCase()
-      )
+      [
+        "css",
+        "scss",
+        "barefoot",
+        "css-modules",
+        "json",
+        "tailwind",
+        "style-dictionary",
+        "schema",
+        "report",
+      ].includes(m[1].toLowerCase())
     ) {
       return { format: m[1].toLowerCase(), path: m[2] };
     }
@@ -184,6 +198,42 @@ function watchFile(source, onChange) {
   w.on("error", () => {});
 }
 
+function startServer(outputs, port) {
+  const files = outputs
+    .filter((o) => o.path)
+    .map((o) => ({
+      path: resolve(process.cwd(), o.path),
+      name: o.path.split(/[\\/]/).pop(),
+      format: o.format || "css",
+    }));
+  const ct = (f) =>
+    f && (f.format === "json" || f.format === "schema" || f.format === "style-dictionary" || f.format === "report")
+      ? "application/json"
+      : "text/css";
+  const server = createServer((req, res) => {
+    const url = (req.url || "/").split("?")[0];
+    if (url === "/" || url === "") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      const items = files.length
+        ? files.map((f) => `<li><a href="/${encodeURIComponent(f.name)}">${f.name}</a></li>`).join("")
+        : "<li>(no file outputs; use -o path)</li>";
+      res.end(`<h1>token-to-css</h1><ul>${items}</ul>`);
+      return;
+    }
+    const name = decodeURIComponent(url.slice(1));
+    const f = files.find((x) => x.name === name);
+    if (!f) {
+      res.writeHead(404);
+      res.end("not found");
+      return;
+    }
+    const data = readFileSync(f.path, "utf8");
+    res.writeHead(200, { "content-type": `${ct(f)}; charset=utf-8` });
+    res.end(data);
+  });
+  server.listen(port, () => console.error(`serving on http://localhost:${port}`));
+}
+
 function collect(list) {
   if (!list) return [];
   return Array.isArray(list) ? list : [list];
@@ -194,6 +244,36 @@ export function run(argv = process.argv.slice(2)) {
   if (args.help) {
     printHelp();
     return 0;
+  }
+
+  if (args.diff) {
+    const a = args.diff;
+    const b = args._[0];
+    if (!b) {
+      console.error("error: --diff requires two files: --diff a.json b.json");
+      return 1;
+    }
+    try {
+      const ta = JSON.parse(readFileSync(resolve(process.cwd(), a), "utf8"));
+      const tb = JSON.parse(readFileSync(resolve(process.cwd(), b), "utf8"));
+      const d = diffTokens(ta, tb);
+      const fmt = ([k, v]) => `  ${k}: ${v}`;
+      let out = "";
+      out += `Added (${Object.keys(d.added).length}):\n`;
+      out += Object.entries(d.added).map(fmt).join("\n") + "\n";
+      out += `Removed (${Object.keys(d.removed).length}):\n`;
+      out += Object.entries(d.removed).map(fmt).join("\n") + "\n";
+      out += `Changed (${Object.keys(d.changed).length}):\n`;
+      out +=
+        Object.entries(d.changed)
+          .map(([k, v]) => `  ${k}: ${v.from} -> ${v.to}`)
+          .join("\n") + "\n";
+      process.stdout.write(out);
+      return 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      return 1;
+    }
   }
 
   const configPath = findConfig(args.config || args.c);
@@ -230,6 +310,10 @@ export function run(argv = process.argv.slice(2)) {
   options.validate = !(args["no-validate"] || args.n);
   options.preset = args.preset || args.P || config.preset;
   options.modes = collect(args.mode || config.modes);
+  options.brand = args.brand || args.B || config.brand;
+  options.strict = Boolean(args.strict);
+  options.serve = Boolean(args.serve);
+  options.port = args.port || args.p || config.port || 4173;
   options.stdin = Boolean(args.stdin);
   if (options.stdin) options.stdinText = readStdinSync();
   options.initial = args.initial !== "false";
@@ -280,6 +364,7 @@ export function run(argv = process.argv.slice(2)) {
     }
     console.error(`watching ${[...watched].join(", ")} (ctrl+c to stop)`);
   }
+  if (options.serve) startServer(outputs, options.port);
   process.exitCode = ok ? 0 : 1;
 }
 

@@ -4,7 +4,16 @@ export interface TokenGroup {
 }
 export type Tokens = TokenGroup;
 
-export type Format = "css" | "scss" | "barefoot" | "css-modules" | "json";
+export type Format =
+  | "css"
+  | "scss"
+  | "barefoot"
+  | "css-modules"
+  | "json"
+  | "tailwind"
+  | "style-dictionary"
+  | "schema"
+  | "report";
 
 export interface ConvertOptions {
   format?: Format;
@@ -17,6 +26,8 @@ export interface ConvertOptions {
   sourceComments?: boolean;
   preset?: "tailwind" | "open-props";
   modes?: string[];
+  brand?: string;
+  strict?: boolean;
 }
 
 export function flattenTokens(
@@ -88,6 +99,14 @@ export class TokenValidationError extends Error {
 }
 
 export function validateTokens(tokens: Tokens): true;
+
+export interface TokenDiff {
+  added: Record<string, string>;
+  removed: Record<string, string>;
+  changed: Record<string, { from: string; to: string }>;
+}
+
+export function diffTokens(a: Tokens, b: Tokens): TokenDiff;
 
 export { parseLocated } from "./locate.js";
 export type { TokenLocation } from "./locate.js";

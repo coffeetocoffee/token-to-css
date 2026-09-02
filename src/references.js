@@ -1,3 +1,5 @@
+import { parseColor, formatColor, withAlpha, lighten, darken, mix } from "./color.js";
+
 function getPath(obj, path) {
   return path
     .split(".")
@@ -6,6 +8,110 @@ function getPath(obj, path) {
 
 const REF = /\{([^}]+)\}/g;
 const EXPR = /\s[-+*/]\s/;
+
+function findCall(str) {
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    if (/[a-zA-Z]/.test(c)) {
+      let j = i;
+      while (j < str.length && /[a-zA-Z]/.test(str[j])) j++;
+      const name = str.slice(i, j);
+      if (str[j] === "(") {
+        let depth = 0;
+        let k = j;
+        for (; k < str.length; k++) {
+          if (str[k] === "(") depth++;
+          else if (str[k] === ")") {
+            depth--;
+            if (depth === 0) break;
+          }
+        }
+        if (k < str.length) {
+          return { name, inner: str.slice(j + 1, k), start: i, end: k + 1 };
+        }
+      }
+      i = j;
+    }
+  }
+  return null;
+}
+
+function splitTopLevel(s, sep) {
+  const out = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of s) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === sep && depth === 0) {
+      out.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  if (cur !== "" || out.length) out.push(cur);
+  return out;
+}
+
+function evalArg(a) {
+  const col = parseColor(a);
+  if (col) return { type: "color", value: col };
+  const t = a.trim();
+  if (t.endsWith("%")) return { type: "pct", value: parseFloat(t) / 100 };
+  if (t !== "" && !Number.isNaN(parseFloat(t)))
+    return { type: "num", value: parseFloat(t) };
+  return { type: "raw", value: a };
+}
+
+function applyFn(name, args) {
+  const colorAt = (i) =>
+    args[i] && args[i].type === "color" ? args[i].value : null;
+  const numAt = (i) =>
+    args[i] && args[i].type !== "raw" ? args[i].value : null;
+  switch (name.toLowerCase()) {
+    case "alpha": {
+      const c = colorAt(0);
+      const p = numAt(1);
+      if (!c || p == null) return null;
+      return formatColor(withAlpha(c, p));
+    }
+    case "lighten": {
+      const c = colorAt(0);
+      const p = numAt(1);
+      if (!c || p == null) return null;
+      return formatColor(lighten(c, p));
+    }
+    case "darken": {
+      const c = colorAt(0);
+      const p = numAt(1);
+      if (!c || p == null) return null;
+      return formatColor(darken(c, p));
+    }
+    case "mix": {
+      const c1 = colorAt(0);
+      const c2 = colorAt(1);
+      const p = args[2] ? numAt(2) : 0.5;
+      if (!c1 || !c2 || p == null) return null;
+      return formatColor(mix(c1, c2, p));
+    }
+    default:
+      return null;
+  }
+}
+
+export function resolveColorFunctions(str) {
+  let result = str;
+  let guard = 0;
+  while (guard++ < 50) {
+    const call = findCall(result);
+    if (!call) break;
+    const innerResolved = resolveColorFunctions(call.inner);
+    const args = splitTopLevel(innerResolved, ",").map((a) => evalArg(a.trim()));
+    const out = applyFn(call.name, args);
+    if (out == null) break; // leave unresolved
+    result = result.slice(0, call.start) + out + result.slice(call.end);
+  }
+  return result;
+}
 
 function tokenize(src) {
   const tokens = [];
@@ -113,7 +219,7 @@ function collapse(value) {
   return `${trimNumber(result.value)}${result.unit}`;
 }
 
-export function resolveReferences(tokens, { reduce = true } = {}) {
+export function resolveReferences(tokens, { reduce = true, strict = false } = {}) {
   const stack = new Set();
   function walk(node) {
     if (typeof node === "string") {
@@ -131,10 +237,15 @@ export function resolveReferences(tokens, { reduce = true } = {}) {
         stack.delete(ref);
         return typeof resolved === "string" ? resolved : String(resolved);
       });
+      value = resolveColorFunctions(value);
       if (isExpr) {
         if (reduce) {
           const collapsed = collapse(value);
           if (collapsed) value = collapsed;
+          else if (strict)
+            throw new Error(
+              `cannot reduce expression with mismatched units: ${node}`
+            );
           else if (!/^calc\(/.test(value)) value = `calc(${value})`;
         } else if (!/^calc\(/.test(value)) {
           value = `calc(${value})`;

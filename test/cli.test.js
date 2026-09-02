@@ -249,3 +249,103 @@ test("CLI reads tokens from --stdin", () => {
   }
 });
 
+test("CLI emits a tailwind @theme block", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const input = join(dir, "tokens.json");
+    writeFileSync(input, JSON.stringify({ color: { primary: "#3b82f6" } }));
+    const out = execFileSync("node", [CLI, input, "-f", "tailwind"], {
+      encoding: "utf8",
+    });
+    assert.match(out, /@theme \{/);
+    assert.match(out, /--color-primary: #3b82f6;/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI writes a style-dictionary output", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const input = join(dir, "tokens.json");
+    const out = join(dir, "out.json");
+    writeFileSync(input, JSON.stringify({ color: { primary: "#3b82f6" } }));
+    execFileSync("node", [CLI, input, "-o", `style-dictionary:${out}`], {
+      encoding: "utf8",
+    });
+    const parsed = JSON.parse(readFileSync(out, "utf8"));
+    assert.equal(parsed.color.primary.value, "#3b82f6");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI writes a schema output", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const input = join(dir, "tokens.json");
+    const out = join(dir, "out.json");
+    writeFileSync(input, JSON.stringify({ color: { primary: "#3b82f6" } }));
+    execFileSync("node", [CLI, input, "-o", `schema:${out}`], {
+      encoding: "utf8",
+    });
+    const parsed = JSON.parse(readFileSync(out, "utf8"));
+    assert.equal(parsed.$schema.includes("json-schema"), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI applies a brand override", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const input = join(dir, "tokens.json");
+    writeFileSync(
+      input,
+      JSON.stringify({
+        color: { primary: "#3b82f6" },
+        brands: { acme: { color: { primary: "#ff0000" } } },
+      })
+    );
+    const out = execFileSync("node", [CLI, input, "--brand", "acme"], {
+      encoding: "utf8",
+    });
+    assert.match(out, /--color-primary: #ff0000;/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI --strict fails on unit mismatch via exit code", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const input = join(dir, "tokens.json");
+    writeFileSync(
+      input,
+      JSON.stringify({ a: "1rem", b: "1px", c: "{a} + {b}" })
+    );
+    assert.throws(() =>
+      execFileSync("node", [CLI, input, "--strict"], { encoding: "utf8" })
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI --diff prints a token diff and exits", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const a = join(dir, "a.json");
+    const b = join(dir, "b.json");
+    writeFileSync(a, JSON.stringify({ color: { primary: "#111" } }));
+    writeFileSync(b, JSON.stringify({ color: { primary: "#222" } }));
+    const out = execFileSync("node", [CLI, "--diff", a, b], {
+      encoding: "utf8",
+    });
+    assert.match(out, /changed/i);
+    assert.match(out, /#111.*#222/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+

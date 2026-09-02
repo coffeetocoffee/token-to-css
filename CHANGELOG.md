@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-02
+
+### Added
+- **Color transform functions**: `alpha(c, p%)`, `lighten(c, p%)`, `darken(c, p%)`,
+  `mix(c1, c2, p%)` inside references, composing with `{references}` and arithmetic.
+- **Tailwind output**: `--format tailwind` emits a Tailwind v4 `@theme { … }` block.
+- **Style Dictionary output**: `--format style-dictionary` emits `{ value: … }` docs.
+- **JSON Schema output**: `--format schema` emits a JSON Schema of the token tree.
+- **Markdown report**: `--format report` emits a table of every token + resolved value.
+- **Multi-brand**: a `brands`/`brand` key with `--brand <name>` to apply overrides.
+- **Strict mode**: `--strict` fails the build on unit mismatches (no `calc()` fallback).
+- **Token diff**: `--diff a.json b.json` prints added/removed/changed tokens.
+- **Preview server**: `--serve` (with `--watch`) serves outputs on `http://localhost:4173`.
+- `diffTokens(a, b)` exported for library use.
+- 71 tests passing on Node 18/20/22.
+
 ## [1.0.0] - 2026-09-02
 
 ### Added
@@ -102,7 +118,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v1.0.0...v1.5.0
 [1.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v0.6.0...v1.0.0
 [0.6.0]: https://github.com/coffeetocoffee/token-to-css/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v0.4.0...v0.5.0

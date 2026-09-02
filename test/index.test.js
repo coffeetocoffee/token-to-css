@@ -10,6 +10,7 @@ import {
   convertToMap,
   normalizeW3C,
   applyMap,
+  diffTokens,
 } from "../src/index.js";
 import { parseLocated } from "../src/locate.js";
 import { resolveReferences } from "../src/references.js";
@@ -352,4 +353,74 @@ test("applyMap maps flat names to output vars with a fallback", () => {
     applyMap({ "color-primary": "#fff", x: "1" }, { "color-primary": "--tw-c" }),
     { "--tw-c": "#fff", "--x": "1" }
   );
+});
+
+test("resolveReferences evaluates color functions", () => {
+  const r = resolveReferences({
+    primary: "#3b82f6",
+    ghost: "alpha({primary}, 50%)",
+  });
+  assert.equal(r.ghost, "rgba(59, 130, 246, 0.5)");
+});
+
+test("resolveReferences evaluates mix/lighten/darken", () => {
+  assert.equal(resolveReferences({ c: "lighten(#000000, 20%)" }).c, "#333333");
+  assert.equal(resolveReferences({ c: "darken(#ffffff, 20%)" }).c, "#cccccc");
+  assert.equal(
+    resolveReferences({ c: "mix(#ff0000, #0000ff, 50%)" }).c,
+    "#800080"
+  );
+});
+
+test("multi-statement expressions resolve", () => {
+  const r = resolveReferences({ a: "1rem", b: "0.5rem", c: "{a} * 2 + {b}" });
+  assert.equal(r.c, "2.5rem");
+});
+
+test("convert emits a tailwind @theme block", () => {
+  const css = convert({ color: { primary: "#3b82f6" } }, { format: "tailwind" });
+  assert.match(css, /@theme \{/);
+  assert.match(css, /--color-primary: #3b82f6;/);
+});
+
+test("convert emits a style-dictionary document", () => {
+  const out = convert({ color: { primary: "#3b82f6" } }, { format: "style-dictionary" });
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.color.primary.value, "#3b82f6");
+});
+
+test("convert emits a JSON Schema", () => {
+  const out = convert({ color: { primary: "#3b82f6" } }, { format: "schema" });
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.$schema.includes("json-schema"), true);
+  assert.equal(parsed.properties.color.type, "object");
+});
+
+test("convert emits a markdown token report", () => {
+  const out = convert({ color: { primary: "#3b82f6" } }, { format: "report" });
+  assert.match(out, /Token Report/);
+  assert.match(out, /color\.primary/);
+});
+
+test("convert applies a named brand override", () => {
+  const tokens = {
+    color: { primary: "#3b82f6" },
+    brands: { acme: { color: { primary: "#ff0000" } } },
+  };
+  const css = convert(tokens, { format: "css", brand: "acme" });
+  assert.match(css, /--color-primary: #ff0000;/);
+});
+
+test("convert throws in strict mode on unit mismatch", () => {
+  assert.throws(
+    () => convert({ a: "1rem", b: "1px", c: "{a} + {b}" }, { strict: true }),
+    /mismatched units/
+  );
+});
+
+test("diffTokens reports added/removed/changed", () => {
+  const d = diffTokens({ a: "1", b: "2" }, { a: "1", b: "3", c: "4" });
+  assert.deepEqual(d.added, { c: "4" });
+  assert.deepEqual(d.removed, {});
+  assert.deepEqual(d.changed, { b: { from: "2", to: "3" } });
 });

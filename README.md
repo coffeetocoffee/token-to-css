@@ -27,7 +27,7 @@ token-to-css <input.json> [options]
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); e.g. scss:out.scss
-  -f, --format <name>   css | scss | barefoot | css-modules | json  (default: css)
+  -f, --format <name>   css | scss | barefoot | css-modules | json | tailwind | style-dictionary | schema | report  (default: css)
   -s, --selector <sel>  CSS selector for variables (default: :root)
   -t, --theme <name>    barefoot only: wrap in [data-bf-theme="name"]
   -m, --map <file>      barefoot only: JSON file mapping token names to vars
@@ -41,11 +41,64 @@ Options:
   -M, --source-map      Write a `<file>.map` source map alongside each output
   -P, --preset <name>   Map tokens via a built-in preset: tailwind | open-props
   --mode <name>         Emit a [data-mode="name"] block (repeatable; reads `modes`)
+  --brand <name>        Apply a named brand override from a `brands`/`brand` key
   --stdin               Read token JSON from standard input
+  --strict              Fail on arithmetic with mismatched units (no `calc()` fallback)
+  --diff <a> <b>        Print a token diff report for two token files, then exit
+  --serve               Serve generated outputs on a local HTTP server (with -w)
+  --port <n>            Port for --serve (default: 4173)
   --initial=false       With --watch, skip the first build until a file changes
   -n, --no-validate     Skip token validation
   -h, --help            Show help
 ```
+
+### More formats & tooling
+
+| Format             | Output                                                            |
+| ------------------ | ----------------------------------------------------------------- |
+| `css`              | CSS custom properties under `:root` (default)                     |
+| `scss`             | SCSS `$variables`                                                 |
+| `barefoot`         | barefoot-css `--bf-*` variables                                   |
+| `css-modules`      | a CSS Modules `:export { ... }` block                             |
+| `json`             | the fully resolved token tree as JSON                             |
+| `tailwind`         | a Tailwind v4 `@theme { ... }` block                              |
+| `style-dictionary` | a [Style Dictionary](https://github.com/amazon-style-dictionary/style-dictionary) document (`{ value: ... }`) |
+| `schema`           | a JSON Schema describing the token structure                      |
+| `report`           | a Markdown table of every token and its resolved value            |
+
+```bash
+token-to-css tokens.json -f tailwind -o theme.css
+token-to-css tokens.json -f style-dictionary -o tokens.sd.json
+token-to-css tokens.json -f schema -o tokens.schema.json
+token-to-css tokens.json -f report -o tokens.md
+```
+
+**Color transforms.** References can call functions on colors:
+`alpha(#3b82f6, 50%)`, `lighten(#000, 20%)`, `darken(#fff, 20%)`,
+`mix(#f00, #00f, 50%)`. These compose with `{references}` and arithmetic.
+
+**Multi-brand.** Put brand overrides under a `brands` (or `brand`) key and
+select one with `--brand acme`:
+
+```json
+{ "color": { "primary": "#3b82f6" }, "brands": { "acme": { "color": { "primary": "#ff0000" } } } }
+```
+
+```bash
+token-to-css tokens.json --brand acme -o theme.css
+```
+
+**Strict mode.** `--strict` turns unit mismatches (e.g. `1rem + 1px`) into a
+hard error instead of emitting `calc()`.
+
+**Diff.** Compare two token files and print added/removed/changed tokens:
+
+```bash
+token-to-css --diff before.json after.json
+```
+
+**Preview server.** `--serve` (optionally with `--watch`) serves the generated
+outputs on `http://localhost:4173` for quick visual inspection.
 
 ## Stability & SemVer
 
