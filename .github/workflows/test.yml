@@ -18,3 +18,13 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
       - run: npm test
+      - name: E2E smoke
+        run: |
+          node src/cli.js examples/tokens.json -o /tmp/out.css
+          grep -q -- "--" /tmp/out.css
+          node src/cli.js examples/tokens.json -f json -o /tmp/out.json
+          node -e "JSON.parse(require('fs').readFileSync('/tmp/out.json','utf8'))"
+          node src/cli.js examples/tokens.json --preset tailwind -o /tmp/tw.css
+          node src/cli.js examples/tokens.json --source-map -o /tmp/sm.css
+          test -f /tmp/sm.css.map
+          cat /tmp/out.css | head -1

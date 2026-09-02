@@ -2,9 +2,11 @@ import { mapToBarefoot, BAREFOOT_MAP } from "./presets/barefoot.js";
 import { TAILWIND_MAP } from "./presets/tailwind.js";
 import { OPENPROPS_MAP } from "./presets/open-props.js";
 import { resolveReferences } from "./references.js";
-import { validateTokens } from "./schema.js";
+import { validateTokens, TokenValidationError } from "./schema.js";
 import { deepMerge } from "./merge.js";
 export { parseLocated } from "./locate.js";
+export { resolveReferences } from "./references.js";
+export { validateTokens, TokenValidationError } from "./schema.js";
 
 function kebab(str) {
   return str

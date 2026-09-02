@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![npm downloads](https://img.shields.io/npm/dm/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v0.2.0](https://img.shields.io/badge/phase-0.2.0%20%E2%80%94%20multi--file%20tokens-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v1.0.0](https://img.shields.io/badge/phase-1.0.0%20%E2%80%94%20stable-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 ## Install
@@ -27,7 +27,7 @@ token-to-css <input.json> [options]
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); e.g. scss:out.scss
-  -f, --format <name>   css | scss | barefoot  (default: css)
+  -f, --format <name>   css | scss | barefoot | css-modules | json  (default: css)
   -s, --selector <sel>  CSS selector for variables (default: :root)
   -t, --theme <name>    barefoot only: wrap in [data-bf-theme="name"]
   -m, --map <file>      barefoot only: JSON file mapping token names to vars
@@ -46,6 +46,26 @@ Options:
   -n, --no-validate     Skip token validation
   -h, --help            Show help
 ```
+
+## Stability & SemVer
+
+`token-to-css` is **1.0.0**: the public surface is frozen and follows Semantic
+Versioning.
+
+- **CLI flags** listed above are stable. Removing or renaming a flag will only
+  happen in a major version, and will be preceded by a deprecation period with a
+  runtime warning.
+- **Library API**: `convert`, `convertToMap`, `flattenTokens`, `normalizeW3C`,
+  `applyMap`, `toCSS` / `toSCSS` / `toBarefoot` / `toCSSModules`,
+  `buildSourceMap`, `resolveReferences`, `validateTokens`, `parseLocated`, and the
+  TypeScript types are part of the supported contract. Breaking changes to these
+  require a major version bump.
+- **Output shape**: CSS variable names, selectors, and the Source Map v3 format
+  are stable. New output formats are added in minor versions and never change
+  existing ones.
+- **Node support**: Node 18+ LTS. We run the test suite on Node 18, 20, and 22.
+
+No flags are deprecated at this time.
 
 ### Output formats
 
@@ -307,6 +327,65 @@ Input is validated against `schema/tokens.schema.json` before conversion:
 groups must be objects, leaves must be strings/numbers/booleans, and every
 `{reference}` must resolve. Invalid input exits non-zero with a message. Skip
 with `--no-validate`.
+
+## Cookbook
+
+**Tailwind v4 theme.** Map tokens onto Tailwind's `@theme` variable names:
+
+```bash
+token-to-css tokens.json --preset tailwind -o theme.css
+# :root { --color-primary: #3b82f6; --text-lg: 1.125rem; }
+```
+
+**Open Props.** Same idea, mapped onto Open Props tokens:
+
+```bash
+token-to-css tokens.json --preset open-props -o theme.css
+# :root { --indigo-6: #3b82f6; }
+```
+
+**Light/dark modes.** Define a `modes` key (or `themes`); each entry becomes a
+scoped block. References resolve across the base and the mode:
+
+```json
+{
+  "color": { "primary": "#3b82f6", "onPrimary": "{color.primary}" },
+  "modes": { "dark": { "color": { "primary": "#1e3a8a" } } }
+}
+```
+
+```bash
+token-to-css tokens.json --mode dark -o theme.css
+# :root { --color-primary: #3b82f6; --color-on-primary: #3b82f6; }
+# :root[data-mode="dark"] { --color-primary: #1e3a8a; --color-on-primary: #1e3a8a; }
+```
+
+**W3C Design Tokens in.** `$value` / `$type` shapes are accepted as-is:
+
+```json
+{ "color": { "primary": { "$value": "#3b82f6" } } }
+```
+
+**CSS Modules.** Export camelCased variables for a bundler:
+
+```bash
+token-to-css tokens.json -f css-modules -o tokens.css
+# :export { colorPrimary: #3b82f6; }
+```
+
+**Pipe from another tool.** Read tokens from stdin, emit resolved JSON for
+downstream consumers:
+
+```bash
+cat tokens.json | token-to-css --stdin -f json -o resolved.json
+```
+
+**Debuggable output.** Add a comment per variable, or a source map:
+
+```bash
+token-to-css tokens.json --source-comments -o theme.css
+token-to-css tokens.json --source-map -o theme.css   # writes theme.css.map
+```
 
 ## Library use
 

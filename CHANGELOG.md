@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-02
+
+### Added
+- **Stability contract**: the public CLI flag set and library API are frozen and
+  follow Semantic Versioning. Documented in `README.md` (Stability & SemVer) and
+  `MIGRATION.md`.
+- **TypeScript coverage**: added `presets/tailwind.d.ts` and
+  `presets/open-props.d.ts`; `index.d.ts` now matches every public export
+  (`resolveReferences`, `validateTokens`, `TokenValidationError`, `normalizeW3C`,
+  `applyMap`, `toCSSModules`, …).
+- **CI hardening**: `test.yml` adds an end-to-end smoke step (CLI runs across
+  css/json/tailwind/source-map) on the Node 18/20/22 LTS matrix.
+- **npm provenance**: `publish.yml` publishes with `--provenance` from GitHub
+  Actions OIDC.
+- **Docs**: expanded README cookbook with per-preset and per-format examples;
+  added `MIGRATION.md` (0.x → 1.0).
+
+### Stability
+- No breaking changes from 0.6.0. 1.0.0 marks the API/CLI freeze; future
+  breaking changes require a major version.
+
 ## [0.6.0] - 2026-09-02
 
 ### Added
@@ -81,7 +102,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v0.6.0...v1.0.0
 [0.6.0]: https://github.com/coffeetocoffee/token-to-css/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/coffeetocoffee/token-to-css/compare/v0.3.0...v0.4.0
