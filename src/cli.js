@@ -6,7 +6,7 @@ import { deepMerge } from "./merge.js";
 import { expandGlob, globBaseDir } from "./glob.js";
 import { parseLocated } from "./locate.js";
 
-const REPEATABLE = new Set(["import", "i", "glob", "g", "output", "o"]);
+const REPEATABLE = new Set(["import", "i", "glob", "g", "output", "o", "mode"]);
 
 function parseArgs(argv) {
   const args = { _: [] };
@@ -17,6 +17,11 @@ function parseArgs(argv) {
       continue;
     }
     const key = a.replace(/^-+/, "");
+    const eq = key.indexOf("=");
+    if (eq !== -1) {
+      args[key.slice(0, eq)] = key.slice(eq + 1);
+      continue;
+    }
     const next = argv[i + 1];
     if (next && !next.startsWith("-")) {
       if (REPEATABLE.has(key)) {
@@ -67,6 +72,14 @@ function readLocated(p) {
   return { ...parseLocated(text, p), text };
 }
 
+function readStdinSync() {
+  try {
+    return readFileSync(0, "utf8");
+  } catch {
+    return "";
+  }
+}
+
 function loadLocated(paths) {
   const merged = {};
   const loc = {};
@@ -100,8 +113,13 @@ function loadConfig(configPath) {
 
 function parseOutputs(list, defaultFormat) {
   return list.map((spec) => {
-    const m = /^([a-z]+):(.+)$/i.exec(spec);
-    if (m && ["css", "scss", "barefoot"].includes(m[1].toLowerCase())) {
+    const m = /^([a-z-]+):(.+)$/i.exec(spec);
+    if (
+      m &&
+      ["css", "scss", "barefoot", "css-modules", "json"].includes(
+        m[1].toLowerCase()
+      )
+    ) {
       return { format: m[1].toLowerCase(), path: m[2] };
     }
     return { format: null, path: spec };
@@ -114,6 +132,12 @@ function generateAll(paths, options, outputs) {
       options.map = JSON.parse(readFileSync(options.mapPath, "utf8"));
     }
     const { merged, loc, sourcesContent } = loadLocated(paths);
+    if (options.stdinText) {
+      const l = parseLocated(options.stdinText, "<stdin>");
+      deepMerge(merged, l.tree);
+      Object.assign(loc, l.loc);
+      sourcesContent["<stdin>"] = options.stdinText;
+    }
     for (const out of outputs) {
       const format = out.format || options.format;
       if (options.sourceMap && out.path) {
@@ -183,7 +207,7 @@ export function run(argv = process.argv.slice(2)) {
   const globs = [...collect(config.glob), ...collect(args.glob || args.g)];
 
   const input = args._[0];
-  if (!input && imports.length === 0 && globs.length === 0) {
+  if (!input && imports.length === 0 && globs.length === 0 && !args.stdin) {
     console.error("error: no input file provided. Use --help for usage.");
     return 1;
   }
@@ -204,6 +228,11 @@ export function run(argv = process.argv.slice(2)) {
   options.sourceComments = Boolean(args["source-comments"] || args.C);
   options.sourceMap = Boolean(args["source-map"] || args.M);
   options.validate = !(args["no-validate"] || args.n);
+  options.preset = args.preset || args.P || config.preset;
+  options.modes = collect(args.mode || config.modes);
+  options.stdin = Boolean(args.stdin);
+  if (options.stdin) options.stdinText = readStdinSync();
+  options.initial = args.initial !== "false";
 
   const outputsList = collect(args.output || args.o);
   const configOutputs = collect(config.output);
@@ -220,9 +249,13 @@ export function run(argv = process.argv.slice(2)) {
   ];
 
   let paths = rebuildPaths();
-  const ok = generateAll(paths, options, outputs);
+  const watch = Boolean(args.watch || args.w);
+  let ok = true;
+  if (!(watch && !options.initial)) {
+    ok = generateAll(paths, options, outputs);
+  }
 
-  if (args.watch || args.w) {
+  if (watch) {
     const watched = new Set();
     const watchOne = (file) => {
       const rp = resolve(process.cwd(), file);

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-02
+
+### Added
+- **W3C Design Tokens input**: `$value`/`$type` tokens are auto-detected and
+  normalized before conversion.
+- **Modes / themes**: a `modes` (or `themes`) key emits `[data-mode="name"]`
+  blocks; `--mode` selects specific modes. References resolve across modes.
+- **CSS Modules output**: `--format css-modules` emits a `:export { ... }` block
+  with camelCased keys.
+- **JSON output**: `--format json` emits the fully resolved token tree
+  (including resolved modes).
+- **Formatter presets**: `--preset tailwind` / `--preset open-props` map tokens
+  onto Tailwind v4 / Open Props naming (unknown tokens fall back to `--<name>`).
+- **`--stdin`**: read token JSON from standard input for piping.
+- **`--initial=false`**: with `--watch`, skip the first build until a file
+  changes.
+- `normalizeW3C`, `applyMap`, and `toCSSModules` exported for library use.
+
 ## [0.5.0] - 2026-09-02
 
 ### Added
@@ -63,7 +81,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/coffeetocoffee/token-to-css/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/coffeetocoffee/token-to-css/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/coffeetocoffee/token-to-css/compare/v0.2.0...v0.3.0

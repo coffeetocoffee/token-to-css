@@ -4,7 +4,7 @@ export interface TokenGroup {
 }
 export type Tokens = TokenGroup;
 
-export type Format = "css" | "scss" | "barefoot";
+export type Format = "css" | "scss" | "barefoot" | "css-modules" | "json";
 
 export interface ConvertOptions {
   format?: Format;
@@ -15,6 +15,8 @@ export interface ConvertOptions {
   reduce?: boolean;
   validate?: boolean;
   sourceComments?: boolean;
+  preset?: "tailwind" | "open-props";
+  modes?: string[];
 }
 
 export function flattenTokens(
@@ -24,12 +26,21 @@ export function flattenTokens(
 
 export function resolveReferences(tokens: Tokens): Tokens;
 
+export function normalizeW3C(input: Tokens): Tokens;
+
+export function applyMap(
+  flat: Record<string, string>,
+  mapObj?: Record<string, string>
+): Record<string, string>;
+
 export function toCSS(
   flat: Record<string, string>,
-  options?: { selector?: string }
+  options?: { selector?: string; sourceComments?: boolean }
 ): string;
 
 export function toSCSS(flat: Record<string, string>): string;
+
+export function toCSSModules(flat: Record<string, string>): string;
 
 export function toBarefoot(
   flat: Record<string, string>,

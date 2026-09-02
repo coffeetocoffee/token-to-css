@@ -39,8 +39,72 @@ Options:
   -z, --no-reduce       Keep arithmetic as calc() instead of collapsing it
   -C, --source-comments Emit a /* token.path */ comment above each variable
   -M, --source-map      Write a `<file>.map` source map alongside each output
+  -P, --preset <name>   Map tokens via a built-in preset: tailwind | open-props
+  --mode <name>         Emit a [data-mode="name"] block (repeatable; reads `modes`)
+  --stdin               Read token JSON from standard input
+  --initial=false       With --watch, skip the first build until a file changes
   -n, --no-validate     Skip token validation
   -h, --help            Show help
+```
+
+### Output formats
+
+`-f` / `--format` selects the output. The repeatable `-o` flag accepts an
+optional `[format]:` prefix for per-file formats.
+
+| Format        | Output                                              |
+| ------------- | --------------------------------------------------- |
+| `css`         | CSS custom properties under `:root` (default)       |
+| `scss`        | SCSS `$variables`                                   |
+| `barefoot`    | barefoot-css `--bf-*` variables                     |
+| `css-modules` | a CSS Modules `:export { ... }` block               |
+| `json`        | the fully resolved token tree as JSON               |
+
+```bash
+token-to-css tokens.json -o css:theme.css -o scss:theme.scss -o json:tokens.resolved.json
+```
+
+### Presets
+
+`--preset tailwind` or `--preset open-props` maps your token names onto a
+well-known external naming scheme (Tailwind v4 `@theme` variables, or
+Open Props). Unknown tokens fall back to `--<name>`. Combine with `--map` to
+override individual names.
+
+```bash
+token-to-css tokens.json --preset tailwind -o theme.css
+```
+
+### W3C Design Tokens
+
+Input may use the [W3C Design Tokens](https://tr.designtokens.org/) shape with
+`$value` (and `$type`); it is auto-detected and normalized before conversion:
+
+```json
+{ "color": { "primary": { "$value": "#3b82f6" } } }
+```
+
+### Modes / themes
+
+Define a `modes` (or `themes`) key; each entry becomes a
+`[data-mode="name"]` block on top of the base tokens. Use `--mode` to emit only
+specific modes. References resolve across the base and the mode.
+
+```json
+{
+  "color": { "primary": "#3b82f6" },
+  "modes": { "dark": { "color": { "primary": "#1e3a8a" } } }
+}
+```
+
+```bash
+token-to-css tokens.json --mode dark -o theme.css
+```
+
+### Reading from a pipe
+
+```bash
+cat tokens.json | token-to-css --stdin -o theme.css
 ```
 
 Watch mode regenerates the output on every save:
@@ -254,6 +318,10 @@ import tokens from "./tokens.json" assert { type: "json" };
 validateTokens(tokens);
 const css = convert(tokens, { format: "barefoot" });
 ```
+
+`convert` also accepts `format` (`css` | `scss` | `barefoot` | `css-modules` |
+`json`), `preset` (`"tailwind"` | `"open-props"`), `modes` (string array),
+`reduce`, `resolve`, `sourceComments`, and W3C `$value` input (auto-detected).
 
 `convertToMap(tree, locations, options)` returns `{ css, map }` where `map` is a
 Source Map v3 object. `locations` maps each flat token name (kebab-cased) to

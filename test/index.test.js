@@ -8,6 +8,8 @@ import {
   convert,
   buildSourceMap,
   convertToMap,
+  normalizeW3C,
+  applyMap,
 } from "../src/index.js";
 import { parseLocated } from "../src/locate.js";
 import { resolveReferences } from "../src/references.js";
@@ -245,4 +247,109 @@ test("buildSourceMap reverses barefoot var names to token paths", () => {
   );
   assert.equal(map.sources[0], "tokens.json");
   assert.ok(map.mappings.split(";").includes("AAEA"));
+});
+
+test("normalizeW3C unwraps $value leaves", () => {
+  assert.deepEqual(
+    normalizeW3C({ color: { primary: { $value: "#fff", $type: "color" } } }),
+    { color: { primary: "#fff" } }
+  );
+});
+
+test("normalizeW3C leaves plain tokens untouched", () => {
+  assert.deepEqual(
+    normalizeW3C({ color: { primary: "#fff" } }),
+    { color: { primary: "#fff" } }
+  );
+});
+
+test("convert accepts W3C design tokens", () => {
+  const css = convert(
+    {
+      color: { primary: { $value: "#3b82f6" } },
+      spacing: { md: { $value: "{color.primary}" } },
+    },
+    { format: "css" }
+  );
+  assert.match(css, /--color-primary: #3b82f6;/);
+  assert.match(css, /--spacing-md: #3b82f6;/);
+});
+
+test("convert emits mode blocks for the modes key", () => {
+  const tokens = {
+    color: { primary: "#3b82f6" },
+    modes: { dark: { color: { primary: "#1e3a8a" } } },
+  };
+  const css = convert(tokens, { format: "css" });
+  assert.match(css, /:root \{/);
+  assert.match(css, /--color-primary: #3b82f6;/);
+  assert.match(css, /:root\[data-mode="dark"\] \{/);
+  assert.match(css, /--color-primary: #1e3a8a;/);
+});
+
+test("convert selects modes via the modes option", () => {
+  const tokens = {
+    color: { primary: "#3b82f6" },
+    modes: {
+      dark: { color: { primary: "#111" } },
+      contrast: { color: { primary: "#000" } },
+    },
+  };
+  const css = convert(tokens, { format: "css", modes: ["dark"] });
+  assert.match(css, /data-mode="dark"/);
+  assert.doesNotMatch(css, /data-mode="contrast"/);
+});
+
+test("convert emits a CSS Modules :export block", () => {
+  const css = convert({ color: { primary: "#3b82f6" } }, { format: "css-modules" });
+  assert.match(css, /:export \{/);
+  assert.match(css, /colorPrimary: #3b82f6;/);
+});
+
+test("convert emits resolved JSON", () => {
+  const out = convert(
+    { color: { primary: "#3b82f6", lg: "{color.primary}" } },
+    { format: "json" }
+  );
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.color.primary, "#3b82f6");
+  assert.equal(parsed.color.lg, "#3b82f6");
+});
+
+test("convert JSON includes resolved modes", () => {
+  const out = convert(
+    {
+      color: { primary: "#3b82f6" },
+      modes: { dark: { color: { primary: "#111" } } },
+    },
+    { format: "json" }
+  );
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.modes.dark.color.primary, "#111");
+});
+
+test("convert applies the tailwind preset", () => {
+  const css = convert({ color: { primary: "#3b82f6" } }, { preset: "tailwind" });
+  assert.match(css, /--color-primary: #3b82f6;/);
+});
+
+test("convert applies the open-props preset", () => {
+  const css = convert({ color: { primary: "#3b82f6" } }, { preset: "open-props" });
+  assert.match(css, /--indigo-6: #3b82f6;/);
+});
+
+test("convertToMap source map reverses preset var names", () => {
+  const { map } = convertToMap(
+    { color: { primary: "#3b82f6" } },
+    { "color-primary": { file: "t.json", line: 3 } },
+    { format: "tailwind", outputFile: "out.css" }
+  );
+  assert.ok(map.mappings.split(";").includes("AAEA"));
+});
+
+test("applyMap maps flat names to output vars with a fallback", () => {
+  assert.deepEqual(
+    applyMap({ "color-primary": "#fff", x: "1" }, { "color-primary": "--tw-c" }),
+    { "--tw-c": "#fff", "--x": "1" }
+  );
 });

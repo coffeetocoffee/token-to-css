@@ -151,3 +151,101 @@ test("CLI writes a source map with --source-map", () => {
   }
 });
 
+test("CLI accepts W3C design tokens", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const input = join(dir, "tokens.json");
+    writeFileSync(
+      input,
+      JSON.stringify({ color: { primary: { $value: "#3b82f6" } } })
+    );
+    const out = execFileSync("node", [CLI, input], { encoding: "utf8" });
+    assert.match(out, /--color-primary: #3b82f6;/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI emits mode blocks with --mode", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const input = join(dir, "tokens.json");
+    writeFileSync(
+      input,
+      JSON.stringify({
+        color: { primary: "#3b82f6" },
+        modes: { dark: { color: { primary: "#111" } } },
+      })
+    );
+    const out = execFileSync("node", [CLI, input, "--mode", "dark"], {
+      encoding: "utf8",
+    });
+    assert.match(out, /:root\[data-mode="dark"\]/);
+    assert.match(out, /--color-primary: #111;/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI writes css-modules output", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const input = join(dir, "tokens.json");
+    const out = join(dir, "out.css");
+    writeFileSync(input, JSON.stringify({ color: { primary: "#3b82f6" } }));
+    execFileSync("node", [CLI, input, "-o", `css-modules:${out}`], {
+      encoding: "utf8",
+    });
+    const css = readFileSync(out, "utf8");
+    assert.match(css, /:export \{/);
+    assert.match(css, /colorPrimary: #3b82f6;/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI writes json output", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const input = join(dir, "tokens.json");
+    const out = join(dir, "out.json");
+    writeFileSync(input, JSON.stringify({ color: { primary: "#3b82f6" } }));
+    execFileSync("node", [CLI, input, "-o", `json:${out}`], {
+      encoding: "utf8",
+    });
+    const parsed = JSON.parse(readFileSync(out, "utf8"));
+    assert.equal(parsed.color.primary, "#3b82f6");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI applies the tailwind preset", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const input = join(dir, "tokens.json");
+    writeFileSync(input, JSON.stringify({ color: { primary: "#3b82f6" } }));
+    const out = execFileSync("node", [CLI, input, "--preset", "tailwind"], {
+      encoding: "utf8",
+    });
+    assert.match(out, /--color-primary: #3b82f6;/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI reads tokens from --stdin", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-"));
+  try {
+    const out = join(dir, "out.css");
+    execFileSync("node", [CLI, "--stdin", "-o", out], {
+      input: JSON.stringify({ color: { primary: "#3b82f6" } }),
+      encoding: "utf8",
+    });
+    const css = readFileSync(out, "utf8");
+    assert.match(css, /--color-primary: #3b82f6;/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
