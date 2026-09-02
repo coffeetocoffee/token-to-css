@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Design Tokens",
+  "description": "Nested design tokens. Groups are objects; leaves are strings, numbers, or booleans. String leaves may reference other tokens with {dotted.path} and may contain spaced arithmetic (e.g. \"{space.md} * 2\") which is emitted as calc().",
+  "type": "object",
+  "additionalProperties": { "$ref": "#/$defs/tokenOrGroup" },
+  "$defs": {
+    "tokenOrGroup": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "number" },
+        { "type": "boolean" },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/tokenOrGroup" }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "brand": "--bf-primary",
+  "color-brand-fg": "--bf-primary-fg",
+  "color-canvas": "--bf-surface",
+  "color-ink": "--bf-text",
+  "color-subtle": "--bf-muted",
+  "gap-sm": "--bf-space-2",
+  "gap-lg": "--bf-space-5",
+  "corner": "--bf-radius",
+  "font-sans": "--bf-font"
+}
