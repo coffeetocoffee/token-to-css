@@ -1,11 +1,19 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, watch, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, watch, existsSync, mkdirSync } from "node:fs";
 import { createServer } from "node:http";
-import { resolve } from "node:path";
-import { convert, convertToMap, diffTokens } from "./index.js";
+import { resolve, join as joinPath } from "node:path";
+import {
+  convert,
+  convertToMap,
+  diffTokens,
+  lintTokens,
+  checkContract,
+  buildKit,
+} from "./index.js";
 import { deepMerge } from "./merge.js";
 import { expandGlob, globBaseDir } from "./glob.js";
 import { parseLocated } from "./locate.js";
+import { buildExplorerHTML } from "./docs.js";
 
 const REPEATABLE = new Set(["import", "i", "glob", "g", "output", "o", "mode"]);
 
@@ -44,10 +52,12 @@ function printHelp() {
 
 Usage:
   token-to-css <input.json> [options]
+  token-to-css kit <input.json> [--out-dir dist] [options]
+  token-to-css lint <input.json> [--contract schema.json] [--json]
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); prefix format, e.g. scss:out.scss
-  -f, --format <name>   css | scss | barefoot | css-modules | json | tailwind | style-dictionary | schema | report  (default: css)
+  -f, --format <name>   css | scss | barefoot | css-modules | json | tailwind | style-dictionary | schema | report | docs | ts | js  (default: css)
   -s, --selector <sel>  CSS selector for variables (default: :root)
   -t, --theme <name>    barefoot only: wrap in [data-bf-theme="name"]
   -m, --map <file>      barefoot only: JSON file mapping token names to vars
@@ -62,10 +72,18 @@ Options:
   -M, --source-map      Write a <file>.map source map alongside each output file
   --strict              Fail on arithmetic with mismatched units (no calc() fallback)
   --diff <a> <b>       Print a token diff report for two token files, then exit
+  --check               Dry-run: fail (exit 1) when an -o output is stale vs tokens
+  --contract <file>     Enforce required tokens + types via a JSON Schema file
+  --out-dir <dir>       Output directory for the kit subcommand (default: dist)
+  --json                With lint: print issues as JSON
   --serve              Serve generated outputs on a local HTTP server (with -w)
   --port <n>           Port for --serve (default: 4173)
   -n, --no-validate     Skip token validation
   -h, --help            Show help
+
+Subcommands:
+  kit                 Emit a theme package (theme.css + theme.js + tokens.ts/js + index.html)
+  lint                Check token health (unused/duplicate/untyped/broken $type/brands)
 `);
 }
 
@@ -128,6 +146,10 @@ const CONFIG_V2_KEYS = new Set([
   "glob",
   "output",
   "outputs",
+  "check",
+  "contract",
+  "outDir",
+  "out-dir",
 ]);
 
 function validateConfigV2(raw) {
@@ -177,6 +199,10 @@ function normalizeConfig(raw) {
     cfg.output = raw.outputs.map((o) =>
       typeof o === "string" ? o : `${o.format || "css"}:${o.file}`
     );
+  if (raw.contract) cfg.contract = raw.contract;
+  if (raw.check != null) cfg.check = raw.check;
+  if (raw.outDir) cfg.outDir = raw.outDir;
+  if (raw["out-dir"]) cfg.outDir = raw["out-dir"];
   return cfg;
 }
 
@@ -197,27 +223,37 @@ function readPackageConfig() {
   return null;
 }
 
+export const KNOWN_FORMATS = [
+  "css",
+  "scss",
+  "barefoot",
+  "css-modules",
+  "json",
+  "tailwind",
+  "style-dictionary",
+  "schema",
+  "report",
+  "docs",
+  "ts",
+  "js",
+];
+
 function parseOutputs(list, defaultFormat) {
   return list.map((spec) => {
     const m = /^([a-z-]+):(.+)$/i.exec(spec);
-    if (
-      m &&
-      [
-        "css",
-        "scss",
-        "barefoot",
-        "css-modules",
-        "json",
-        "tailwind",
-        "style-dictionary",
-        "schema",
-        "report",
-      ].includes(m[1].toLowerCase())
-    ) {
+    if (m && KNOWN_FORMATS.includes(m[1].toLowerCase())) {
       return { format: m[1].toLowerCase(), path: m[2] };
     }
     return { format: null, path: spec };
   });
+}
+
+function enforceContract(merged, contractPath) {
+  if (!contractPath) return;
+  const schema = JSON.parse(
+    readFileSync(resolve(process.cwd(), contractPath), "utf8")
+  );
+  checkContract(merged, schema);
 }
 
 function generateAll(paths, options, outputs) {
@@ -232,6 +268,7 @@ function generateAll(paths, options, outputs) {
       Object.assign(loc, l.loc);
       sourcesContent["<stdin>"] = options.stdinText;
     }
+    if (options.contract) enforceContract(merged, options.contract);
     for (const out of outputs) {
       const format = out.format || options.format;
       if (options.sourceMap && out.path) {
@@ -268,6 +305,86 @@ function generateAll(paths, options, outputs) {
   }
 }
 
+/**
+ * --check: dry-run that fails when a file output is stale vs tokens.
+ * Reuses convert/convertToMap for the expected bytes and diffTokens to
+ * explain JSON staleness.
+ */
+function checkAll(paths, options, outputs) {
+  try {
+    if (options.mapPath) {
+      options.map = JSON.parse(readFileSync(options.mapPath, "utf8"));
+    }
+    const { merged, loc, sourcesContent } = loadLocated(paths);
+    if (options.stdinText) {
+      const l = parseLocated(options.stdinText, "<stdin>");
+      deepMerge(merged, l.tree);
+      Object.assign(loc, l.loc);
+      sourcesContent["<stdin>"] = options.stdinText;
+    }
+    if (options.contract) enforceContract(merged, options.contract);
+    const fileOutputs = outputs.filter((o) => o.path);
+    if (!fileOutputs.length) {
+      console.error("error: --check requires at least one -o <file> output");
+      return false;
+    }
+    let stale = false;
+    for (const out of fileOutputs) {
+      const format = out.format || options.format;
+      let expected;
+      if (options.sourceMap) {
+        const { css, map } = convertToMap(merged, loc, {
+          ...options,
+          format,
+          outputFile: out.path,
+          sourcesContent,
+        });
+        void map;
+        const base = out.path.split(/[\\/]/).pop();
+        expected = `${css}/*# sourceMappingURL=${base}.map */\n`;
+      } else {
+        expected = convert(merged, { ...options, format });
+      }
+      const outPath = resolve(process.cwd(), out.path);
+      let actual = null;
+      try {
+        actual = readFileSync(outPath, "utf8");
+      } catch {
+        actual = null;
+      }
+      if (actual !== expected) {
+        stale = true;
+        if (actual == null) {
+          console.error(`stale: ${out.path} (missing, run without --check to generate)`);
+        } else {
+          console.error(`stale: ${out.path} differs from tokens; run without --check to regenerate`);
+          if (format === "json") {
+            try {
+              const d = diffTokens(JSON.parse(actual), JSON.parse(expected));
+              const n =
+                Object.keys(d.added).length +
+                Object.keys(d.removed).length +
+                Object.keys(d.changed).length;
+              if (n > 0) {
+                console.error(
+                  `  diff: +${Object.keys(d.added).length} -${Object.keys(d.removed).length} ~${Object.keys(d.changed).length}`
+                );
+              }
+            } catch {
+              /* actual is not JSON (e.g. stale CSS in a .json path); skip */
+            }
+          }
+        }
+      }
+    }
+    if (!stale) console.error("check: all outputs are up to date");
+    return !stale;
+  } catch (err) {
+    console.error(`error: ${err.message}`);
+    return false;
+  }
+}
+
 function watchFile(source, onChange) {
   let timer;
   const fire = () => {
@@ -278,7 +395,7 @@ function watchFile(source, onChange) {
   w.on("error", () => {});
 }
 
-function startServer(outputs, port) {
+function startServer(outputs, port, explorerHtml) {
   const files = outputs
     .filter((o) => o.path)
     .map((o) => ({
@@ -287,17 +404,29 @@ function startServer(outputs, port) {
       format: o.format || "css",
     }));
   const ct = (f) =>
-    f && (f.format === "json" || f.format === "schema" || f.format === "style-dictionary" || f.format === "report")
+    f && (f.format === "json" || f.format === "schema" || f.format === "style-dictionary")
       ? "application/json"
-      : "text/css";
+      : f && (f.format === "report" || f.format === "docs")
+        ? "text/html; charset=utf-8"
+        : "text/css";
   const server = createServer((req, res) => {
     const url = (req.url || "/").split("?")[0];
-    if (url === "/" || url === "") {
+    if ((url === "/" || url === "") && explorerHtml) {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(explorerHtml);
+      return;
+    }
+    if ((url === "/" || url === "") && !explorerHtml) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       const items = files.length
         ? files.map((f) => `<li><a href="/${encodeURIComponent(f.name)}">${f.name}</a></li>`).join("")
         : "<li>(no file outputs; use -o path)</li>";
       res.end(`<h1>token-to-css</h1><ul>${items}</ul>`);
+      return;
+    }
+    if ((url === "/explorer" || url === "/tokens") && explorerHtml) {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(explorerHtml);
       return;
     }
     const name = decodeURIComponent(url.slice(1));
@@ -370,9 +499,16 @@ export function run(argv = process.argv.slice(2)) {
   ];
   const globs = [...collect(config.glob), ...collect(args.glob || args.g)];
 
-  const input = args._[0];
+  const sub = args._[0] === "kit" || args._[0] === "lint" ? args._[0] : null;
+  const input = sub ? args._[1] : args._[0];
   if (!input && imports.length === 0 && globs.length === 0 && !args.stdin) {
-    console.error("error: no input file provided. Use --help for usage.");
+    console.error(
+      sub === "kit"
+        ? "error: kit requires an input file: token-to-css kit <input.json>"
+        : sub === "lint"
+          ? "error: lint requires an input file: token-to-css lint <input.json>"
+          : "error: no input file provided. Use --help for usage."
+    );
     return 1;
   }
 
@@ -401,6 +537,92 @@ export function run(argv = process.argv.slice(2)) {
   options.stdin = Boolean(args.stdin);
   if (options.stdin) options.stdinText = readStdinSync();
   options.initial = args.initial !== "false";
+  options.check = Boolean(args.check || config.check);
+  options.contract = args.contract || config.contract || null;
+  options.outDir = args["out-dir"] || args.outDir || config.outDir || "dist";
+
+  const rebuildPaths = () => [
+    ...([input, ...imports].filter(Boolean)),
+    ...globs.flatMap((g) => expandGlob(g)),
+  ];
+
+  if (sub === "lint") {
+    try {
+      if (options.mapPath) {
+        options.map = JSON.parse(readFileSync(options.mapPath, "utf8"));
+      }
+      const { merged } = loadLocated(rebuildPaths());
+      if (options.stdinText) {
+        const l = parseLocated(options.stdinText, "<stdin>");
+        deepMerge(merged, l.tree);
+      }
+      const { issues, errors, warnings } = lintTokens(merged);
+      let contractError = null;
+      if (options.contract) {
+        try {
+          enforceContract(merged, options.contract);
+        } catch (err) {
+          contractError = err;
+        }
+      }
+      if (args.json) {
+        process.stdout.write(
+          `${JSON.stringify({ issues, errors, warnings, contractError: contractError?.message || null }, null, 2)}\n`
+        );
+      } else {
+        for (const i of issues) {
+          process.stdout.write(`${i.severity}: [${i.rule}] ${i.message}\n`);
+        }
+        if (contractError) process.stdout.write(`error: [contract] ${contractError.message}\n`);
+        if (!issues.length && !contractError) process.stdout.write("lint: no issues\n");
+        else process.stdout.write(`lint: ${errors} error(s), ${warnings} warning(s)\n`);
+      }
+      const failed = errors > 0 || contractError;
+      process.exitCode = failed ? 1 : 0;
+      return failed ? 1 : 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
+  if (sub === "kit") {
+    try {
+      if (options.mapPath) {
+        options.map = JSON.parse(readFileSync(options.mapPath, "utf8"));
+      }
+      const { merged } = loadLocated(rebuildPaths());
+      if (options.stdinText) {
+        const l = parseLocated(options.stdinText, "<stdin>");
+        deepMerge(merged, l.tree);
+      }
+      if (options.contract) enforceContract(merged, options.contract);
+      const kit = buildKit(merged, options);
+      const outDir = resolve(process.cwd(), options.outDir);
+      mkdirSync(outDir, { recursive: true });
+      const files = {
+        "theme.css": kit.css,
+        "theme.js": kit.js,
+        "tokens.ts": kit.ts,
+        "tokens.js": kit.jsBindings,
+        "index.html": kit.html,
+      };
+      for (const [name, content] of Object.entries(files)) {
+        writeFileSync(joinPath(outDir, name), content, "utf8");
+        console.error(`wrote ${joinPath(outDir, name)}`);
+      }
+      console.error(
+        `kit: ${kit.modes.length} mode(s), ${kit.brands.length} brand(s), ${kit.names.length} token(s)`
+      );
+      process.exitCode = 0;
+      return 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
 
   const outputsList = collect(args.output || args.o);
   const configOutputs = collect(config.output);
@@ -410,17 +632,12 @@ export function run(argv = process.argv.slice(2)) {
       ? allOutputs
       : [{ format: null, path: null }];
 
-  const rebuildPaths = () => [
-    ...(input ? [input] : []),
-    ...imports,
-    ...globs.flatMap((g) => expandGlob(g)),
-  ];
-
+  const build = options.check ? checkAll : generateAll;
   let paths = rebuildPaths();
   const watch = Boolean(args.watch || args.w);
   let ok = true;
   if (!(watch && !options.initial)) {
-    ok = generateAll(paths, options, outputs);
+    ok = build(paths, options, outputs);
   }
 
   if (watch) {
@@ -434,7 +651,7 @@ export function run(argv = process.argv.slice(2)) {
     const regenerate = () => {
       paths = rebuildPaths();
       for (const f of paths) watchOne(f);
-      const okNow = generateAll(paths, options, outputs);
+      const okNow = build(paths, options, outputs);
       if (okNow) process.exitCode = 0;
     };
     for (const f of paths) watchOne(f);
@@ -448,7 +665,19 @@ export function run(argv = process.argv.slice(2)) {
     }
     console.error(`watching ${[...watched].join(", ")} (ctrl+c to stop)`);
   }
-  if (options.serve) startServer(outputs, options.port);
+  if (options.serve) {
+    let explorerHtml = null;
+    try {
+      const { merged } = loadLocated(paths);
+      explorerHtml = buildExplorerHTML(merged, {
+        ...options,
+        files: outputs.filter((o) => o.path).map((o) => ({ name: o.path.split(/[\\/]/).pop() })),
+      });
+    } catch {
+      explorerHtml = null;
+    }
+    startServer(outputs, options.port, explorerHtml);
+  }
   process.exitCode = ok ? 0 : 1;
 }
 

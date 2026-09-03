@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-09-03
+
+### Added
+- **Theme Kit**: `token-to-css kit <input> --out-dir dist` emits a cohesive
+  theme package — `theme.css` (all `modes` + `brands` as `[data-mode]` /
+  `[data-brand]` blocks plus mode×brand combos), a 742-byte `theme.js`
+  runtime that flips themes via `data-mode` / `data-brand` / `data-theme`
+  (localStorage-persisted), a self-contained `index.html` preview with
+  mode/brand switchers, and typed `tokens.ts` / `tokens.js` bindings.
+- **`--check`**: dry-run that exits 1 when an `-o` output is stale vs tokens
+  (reuses `convert` / `convertToMap` for expected bytes and `diffTokens`
+  to summarize JSON drift). Ideal for CI.
+- **`lint`**: `token-to-css lint <input> [--contract schema.json] [--json]`
+  detects unused / duplicate-value / untyped tokens, broken `$type`,
+  unknown references, dangling brand overrides, and missing brand overrides.
+- **Contracts**: `--contract <schema.json>` (also `lint --contract` and
+  `kit --contract`) enforces required tokens + types via a JSON Schema
+  (e.g. as emitted by `--format schema` with added `required` arrays);
+  new `checkContract(tokens, schema)` export.
+- **Token explorer**: `--serve` now serves a browseable page at `/`
+  (every token, value, swatch, copy-to-clipboard + file links); `/explorer`
+  alias kept.
+- **Docs site**: `--format docs` emits a static, searchable HTML token site
+  built on the `report` data; `--format ts` / `--format js` emit typed
+  bindings directly.
+- New library exports: `lintTokens`, `checkContract`, `buildKit`,
+  `buildKitCSS`, `buildThemeJS`, `buildBindings`, `buildPreviewHTML`,
+  `splitThemes`, `THEME_JS`, `buildDocsSite`, `buildExplorerHTML`.
+- 100 tests passing on Node 20/22.
+
 ## [2.0.0] - 2026-09-02
 
 ### Changed
@@ -141,7 +171,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v2.0.0...v2.5.0
 [2.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v1.5.0...v2.0.0
 [1.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v1.0.0...v1.5.0
 [1.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v0.6.0...v1.0.0

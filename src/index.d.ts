@@ -13,7 +13,10 @@ export type Format =
   | "tailwind"
   | "style-dictionary"
   | "schema"
-  | "report";
+  | "report"
+  | "docs"
+  | "ts"
+  | "js";
 
 export interface ConvertOptions {
   format?: Format;
@@ -120,3 +123,41 @@ export function registerPlugin(plugin: Plugin): Plugin;
 
 export { parseLocated } from "./locate.js";
 export type { TokenLocation } from "./locate.js";
+
+export interface LintIssue {
+  rule: string;
+  message: string;
+  path: string | null;
+  severity: "error" | "warning";
+}
+
+export interface LintResult {
+  issues: LintIssue[];
+  errors: number;
+  warnings: number;
+}
+
+export function lintTokens(tokens: Tokens, options?: { noUnused?: boolean; noDuplicates?: boolean }): LintResult;
+export function checkContract(tokens: Tokens, schema: object): true;
+
+export interface KitResult {
+  css: string;
+  js: string;
+  html: string;
+  ts: string;
+  jsBindings: string;
+  modes: string[];
+  brands: string[];
+  flat: Record<string, string>;
+  names: string[];
+}
+
+export function splitThemes(tokens: Tokens): { base: Tokens; modes: Record<string, Tokens>; brands: Record<string, Tokens> };
+export function buildKitCSS(tokens: Tokens, options?: ConvertOptions & { brands?: string[] }): { css: string; modes: string[]; brands: string[] };
+export const THEME_JS: string;
+export function buildThemeJS(): string;
+export function buildBindings(tokens: Tokens, options?: ConvertOptions): { ts: string; js: string; flat: Record<string, string>; names: string[] };
+export function buildPreviewHTML(tokens: Tokens, options?: ConvertOptions & { title?: string }): string;
+export function buildKit(tokens: Tokens, options?: ConvertOptions & { title?: string; brands?: string[] }): KitResult;
+export function buildDocsSite(tokens: Tokens, options?: ConvertOptions & { title?: string }): string;
+export function buildExplorerHTML(tokens: Tokens, options?: ConvertOptions & { files?: { name: string }[] }): string;

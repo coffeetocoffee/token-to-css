@@ -4,9 +4,31 @@ import { OPENPROPS_MAP } from "./presets/open-props.js";
 import { resolveReferences, registerFunction } from "./references.js";
 import { validateTokens, TokenValidationError } from "./schema.js";
 import { deepMerge } from "./merge.js";
+import { lintTokens, checkContract } from "./lint.js";
+import {
+  buildKit,
+  buildKitCSS,
+  buildThemeJS,
+  buildBindings,
+  buildPreviewHTML,
+  splitThemes,
+  THEME_JS,
+} from "./kit.js";
+import { buildDocsSite, buildExplorerHTML } from "./docs.js";
 export { parseLocated } from "./locate.js";
 export { resolveReferences, registerFunction } from "./references.js";
 export { validateTokens, TokenValidationError } from "./schema.js";
+export { lintTokens, checkContract } from "./lint.js";
+export {
+  buildKit,
+  buildKitCSS,
+  buildThemeJS,
+  buildBindings,
+  buildPreviewHTML,
+  splitThemes,
+  THEME_JS,
+} from "./kit.js";
+export { buildDocsSite, buildExplorerHTML } from "./docs.js";
 
 const registeredFormats = {};
 
@@ -309,6 +331,12 @@ function buildOutput(tokens, options = {}) {
     css = `${JSON.stringify(toSchema(baseTree), null, 2)}\n`;
   } else if (opts.format === "report") {
     css = renderReport(resolvedBase, modeDefs, opts);
+  } else if (opts.format === "docs") {
+    css = buildDocsSite(tokens, opts);
+  } else if (opts.format === "ts") {
+    css = buildBindings(tokens, opts).ts;
+  } else if (opts.format === "js") {
+    css = buildBindings(tokens, opts).js;
   } else if (opts.format && registeredFormats[opts.format]) {
     css = registeredFormats[opts.format](baseOut, {
       ...opts,

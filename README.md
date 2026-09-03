@@ -24,10 +24,12 @@ node src/cli.js tokens.json -o output.css
 
 ```bash
 token-to-css <input.json> [options]
+token-to-css kit <input.json> [--out-dir dist] [options]
+token-to-css lint <input.json> [--contract schema.json] [--json]
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); e.g. scss:out.scss
-  -f, --format <name>   css | scss | barefoot | css-modules | json | tailwind | style-dictionary | schema | report  (default: css)
+  -f, --format <name>   css | scss | barefoot | css-modules | json | tailwind | style-dictionary | schema | report | docs | ts | js  (default: css)
   -s, --selector <sel>  CSS selector for variables (default: :root)
   -t, --theme <name>    barefoot only: wrap in [data-bf-theme="name"]
   -m, --map <file>      barefoot only: JSON file mapping token names to vars
@@ -45,6 +47,10 @@ Options:
   --stdin               Read token JSON from standard input
   --strict              Fail on arithmetic with mismatched units (no `calc()` fallback)
   --diff <a> <b>        Print a token diff report for two token files, then exit
+  --check               Dry-run: fail (exit 1) when an -o output is stale vs tokens
+  --contract <file>     Enforce required tokens + types via a JSON Schema file
+  --out-dir <dir>       Output directory for the kit subcommand (default: dist)
+  --json                With lint: print issues as JSON
   --serve               Serve generated outputs on a local HTTP server (with -w)
   --port <n>            Port for --serve (default: 4173)
   --initial=false       With --watch, skip the first build until a file changes
@@ -65,12 +71,17 @@ Options:
 | `style-dictionary` | a [Style Dictionary](https://github.com/amazon-style-dictionary/style-dictionary) document (`{ value: ... }`) |
 | `schema`           | a JSON Schema describing the token structure                      |
 | `report`           | a Markdown table of every token and its resolved value            |
+| `docs`             | a static, searchable HTML token site (built on the report data)   |
+| `ts`               | typed bindings (`tokens.ts`: `TokenName`, `TokenMap`, consts)     |
+| `js`               | typed bindings (`tokens.js`: `tokens` map + consts)               |
 
 ```bash
 token-to-css tokens.json -f tailwind -o theme.css
 token-to-css tokens.json -f style-dictionary -o tokens.sd.json
 token-to-css tokens.json -f schema -o tokens.schema.json
 token-to-css tokens.json -f report -o tokens.md
+token-to-css tokens.json -f docs -o docs.html
+token-to-css tokens.json -f ts -o tokens.ts
 ```
 
 **Color transforms.** References can call functions on colors:
@@ -98,7 +109,52 @@ token-to-css --diff before.json after.json
 ```
 
 **Preview server.** `--serve` (optionally with `--watch`) serves the generated
-outputs on `http://localhost:4173` for quick visual inspection.
+outputs on `http://localhost:4173` for quick visual inspection. The index
+page is a token explorer: every variable with its value, a swatch, a
+copy-to-clipboard button, a live filter, and links to each output file.
+
+**Theme kit.** One command turns a token file into a shippable, typed,
+runtime-switchable design system:
+
+```bash
+token-to-css kit tokens.json --out-dir dist
+# dist/theme.css   all modes + brands as [data-mode]/[data-brand] blocks (plus combos)
+# dist/theme.js    ~1KB runtime: window.setTheme({ mode, brand }), persisted to localStorage
+# dist/tokens.ts   typed bindings (TokenName, TokenMap, per-token consts)
+# dist/tokens.js   JS bindings (tokens map + per-token consts)
+# dist/index.html  self-contained preview with mode/brand switchers
+```
+
+```html
+<link rel="stylesheet" href="theme.css" />
+<script src="theme.js"></script>
+<script>window.setTheme({ mode: "dark", brand: "acme" });</script>
+```
+
+**Token health.** `lint` answers "is this token set healthy?":
+
+```bash
+token-to-css lint tokens.json
+# warning: [unused] unused token "color-primary": never referenced by another token
+# warning: [duplicate-value] duplicate value "#fff" shared by: a, b
+# warning: [untyped] untyped token "color.primary": $value without $type
+# error: [broken-type] broken $type at "color.primary": unknown type "nope"
+# lint: 1 error(s), 3 warning(s)
+```
+
+**Contracts.** Enforce required tokens + `$type` via a JSON Schema (e.g. as
+emitted by `--format schema` with added `required` arrays):
+
+```bash
+token-to-css tokens.json --contract contract.json -o theme.css
+token-to-css lint tokens.json --contract contract.json
+```
+
+**CI guard.** `--check` fails when generated output is stale vs tokens:
+
+```bash
+token-to-css tokens.json -o theme.css --check || npm run build:tokens
+```
 
 ## Stability & SemVer
 
@@ -110,9 +166,11 @@ outputs on `http://localhost:4173` for quick visual inspection.
 - **Library API**: `convert`, `convertToMap`, `flattenTokens`, `normalizeW3C`,
   `applyMap`, `toCSS` / `toSCSS` / `toBarefoot` / `toCSSModules`,
   `buildSourceMap`, `resolveReferences`, `registerFunction`, `registerFormat`,
-  `registerPlugin`, `validateTokens`, `parseLocated`, and the TypeScript types are
-  part of the supported contract. Breaking changes to these require a major
-  version bump.
+  `registerPlugin`, `validateTokens`, `parseLocated`, `lintTokens`,
+  `checkContract`, `buildKit` / `buildKitCSS` / `buildThemeJS` / `buildBindings` /
+  `buildPreviewHTML` / `splitThemes`, `buildDocsSite`, `buildExplorerHTML`,
+  and the TypeScript types are part of the supported contract. Breaking
+  changes to these require a major version bump.
 - **Output shape**: CSS variable names, selectors, and the Source Map v3 format
   are stable. New output formats are added in minor versions and never change
   existing ones.
@@ -453,8 +511,10 @@ const css = convert(tokens, { format: "barefoot" });
 ```
 
 `convert` also accepts `format` (`css` | `scss` | `barefoot` | `css-modules` |
-`json`), `preset` (`"tailwind"` | `"open-props"`), `modes` (string array),
-`reduce`, `resolve`, `sourceComments`, and W3C `$value` input (auto-detected).
+`json` | `tailwind` | `style-dictionary` | `schema` | `report` | `docs` | `ts` |
+`js`), `preset` (`"tailwind"` | `"open-props"`), `modes` (string array),
+`brand`, `strict`, `reduce`, `resolve`, `sourceComments`, and W3C `$value`
+input (auto-detected).
 
 `convertToMap(tree, locations, options)` returns `{ css, map }` where `map` is a
 Source Map v3 object. `locations` maps each flat token name (kebab-cased) to
