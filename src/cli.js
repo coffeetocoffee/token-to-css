@@ -9,6 +9,8 @@ import {
   lintTokens,
   checkContract,
   buildKit,
+  reverse,
+  resolveReferences,
 } from "./index.js";
 import { deepMerge } from "./merge.js";
 import { expandGlob, globBaseDir } from "./glob.js";
@@ -84,6 +86,9 @@ Options:
 Subcommands:
   kit                 Emit a theme package (theme.css + theme.js + tokens.ts/js + index.html)
   lint                Check token health (unused/duplicate/untyped/broken $type/brands)
+  reverse <file>      Parse CSS/SCSS back into a token tree (best-effort round-trip)
+  snapshot <input>    Write the fully resolved token tree (for cross-version diffing)
+  history <a> <b>...  Diff a sequence of snapshots across versions
 `);
 }
 
@@ -499,7 +504,14 @@ export function run(argv = process.argv.slice(2)) {
   ];
   const globs = [...collect(config.glob), ...collect(args.glob || args.g)];
 
-  const sub = args._[0] === "kit" || args._[0] === "lint" ? args._[0] : null;
+  const sub =
+    args._[0] === "kit" ||
+    args._[0] === "lint" ||
+    args._[0] === "reverse" ||
+    args._[0] === "snapshot" ||
+    args._[0] === "history"
+      ? args._[0]
+      : null;
   const input = sub ? args._[1] : args._[0];
   if (!input && imports.length === 0 && globs.length === 0 && !args.stdin) {
     console.error(
@@ -616,6 +628,85 @@ export function run(argv = process.argv.slice(2)) {
         `kit: ${kit.modes.length} mode(s), ${kit.brands.length} brand(s), ${kit.names.length} token(s)`
       );
       process.exitCode = 0;
+      return 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
+  if (sub === "reverse") {
+    try {
+      const file = input;
+      if (!file) {
+        console.error("error: reverse requires a CSS/SCSS file: token-to-css reverse <file.css>");
+        process.exitCode = 1;
+        return 1;
+      }
+      const text = readFileSync(resolve(process.cwd(), file), "utf8");
+      const tree = reverse(text, options);
+      const out = JSON.stringify(tree, null, 2);
+      const o = parseOutputs(collect(args.output || args.o), "json")[0];
+      if (o && o.path) {
+        writeFileSync(resolve(process.cwd(), o.path), out, "utf8");
+        console.error(`wrote ${o.path}`);
+      } else {
+        process.stdout.write(out + "\n");
+      }
+      return 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
+  if (sub === "snapshot") {
+    try {
+      const { merged } = loadLocated(rebuildPaths());
+      const resolved = options.resolve === false ? merged : resolveReferences(merged, { reduce: options.reduce });
+      const out = JSON.stringify(resolved, null, 2);
+      const o = parseOutputs(collect(args.output || args.o), "json")[0];
+      if (o && o.path) {
+        writeFileSync(resolve(process.cwd(), o.path), out, "utf8");
+        console.error(`wrote ${o.path}`);
+      } else {
+        process.stdout.write(out + "\n");
+      }
+      return 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
+  if (sub === "history") {
+    try {
+      const files = args._.slice(1);
+      if (files.length < 2) {
+        console.error("error: history requires at least two snapshots: token-to-css history a.json b.json");
+        process.exitCode = 1;
+        return 1;
+      }
+      const read = (f) => JSON.parse(readFileSync(resolve(process.cwd(), f), "utf8"));
+      let prevName = files[0];
+      let prev = read(prevName);
+      for (let i = 1; i < files.length; i++) {
+        const curName = files[i];
+        const cur = read(curName);
+        const d = diffTokens(prev, cur);
+        const a = Object.keys(d.added).length;
+        const r = Object.keys(d.removed).length;
+        const c = Object.keys(d.changed).length;
+        console.log(`## ${prevName} -> ${curName}: +${a} -${r} ~${c}`);
+        for (const [k, v] of Object.entries(d.added)) console.log(`  + ${k}: ${v}`);
+        for (const [k, v] of Object.entries(d.removed)) console.log(`  - ${k}: ${v}`);
+        for (const [k, v] of Object.entries(d.changed)) console.log(`  ~ ${k}: ${v.from} -> ${v.to}`);
+        prevName = curName;
+        prev = cur;
+      }
       return 0;
     } catch (err) {
       console.error(`error: ${err.message}`);

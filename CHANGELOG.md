@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-09-03
+
+### Added
+- **`reverse`**: CSS/SCSS → token tree (best-effort round-trip). Folds `:root`
+  into the base, `[data-mode="x"]` into `modes.x`, `[data-brand="x"]` into
+  `brands.x`, and maps barefoot `--bf-*` vars back to token paths. CLI:
+  `token-to-css reverse <file.css> -o tokens.json`.
+- **Style Dictionary interchange**: `reverseStyleDictionary(sd)` unwraps
+  `{ value: … }` leaves back into plain tokens, pairing with the
+  `style-dictionary` output format.
+- **Cross-version diffing**: `snapshot` writes the fully resolved token tree;
+  `history <a> <b> …` diffs a sequence of snapshots and reports per-version
+  transitions (`+added / -removed / ~changed`).
+- New library exports: `reverse`, `reverseStyleDictionary`.
+
+### Changed
+- **`convert` (css/barefoot) now emits `[data-brand="x"]` blocks** in addition
+  to the existing `[data-mode="x"]` blocks, so brands round-trip through
+  `reverse` (previously only `kit` emitted brand blocks). This is a behavioral
+  change to generated output, which is why this is a major release — existing
+  CSS variable names/selectors are unchanged, only brand override blocks are
+  added when a `brands`/`brand` key is present.
+- `convert` accepts a `brands` option (array) to scope which brand blocks are
+  emitted (mirrors the existing `modes` option).
+
+### Notes
+- `reverse` is best-effort: kebab-case collisions (e.g. a `color.primary` leaf
+  and a `color.primaryHover` token, both kebab to `color-primary-*`) resolve to
+  the exact leaf and drop the nested branch. Non-colliding names round-trip
+  byte-for-byte (CSS → tree → CSS is identical).
+
 ## [2.5.1] - 2026-09-03
 
 ### Fixed
@@ -183,7 +214,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v2.5.1...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v2.5.1...v3.0.0
 [2.5.1]: https://github.com/coffeetocoffee/token-to-css/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v2.0.0...v2.5.0
 [2.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v1.5.0...v2.0.0

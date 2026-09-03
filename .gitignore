@@ -3,3 +3,6 @@ package-lock.json
 *.log
 examples/*.css
 .DS_Store
+
+# npm pack artifacts
+*.tgz

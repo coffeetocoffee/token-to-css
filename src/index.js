@@ -15,6 +15,7 @@ import {
   THEME_JS,
 } from "./kit.js";
 import { buildDocsSite, buildExplorerHTML } from "./docs.js";
+import { reverse, reverseStyleDictionary } from "./reverse.js";
 export { parseLocated } from "./locate.js";
 export { resolveReferences, registerFunction } from "./references.js";
 export { validateTokens, TokenValidationError } from "./schema.js";
@@ -29,6 +30,7 @@ export {
   THEME_JS,
 } from "./kit.js";
 export { buildDocsSite, buildExplorerHTML } from "./docs.js";
+export { reverse, reverseStyleDictionary } from "./reverse.js";
 
 const registeredFormats = {};
 
@@ -315,6 +317,28 @@ function buildOutput(tokens, options = {}) {
         : merged;
       const f = mapFlat(flattenTokens(r), opts, customMap);
       blocks.push({ selector: modeSelector(baseSelector, m), flat: f });
+    }
+  }
+
+  if (brandDefs && (opts.format === "css" || opts.format === "barefoot")) {
+    const requested =
+      opts.brands && opts.brands.length
+        ? opts.brands
+        : opts.brand
+          ? [opts.brand]
+          : Object.keys(brandDefs);
+    for (const b of requested) {
+      if (!brandDefs[b]) continue;
+      const merged = structuredClone(baseTree);
+      deepMerge(merged, brandDefs[b]);
+      const r = opts.resolve
+        ? resolveReferences(merged, { reduce: opts.reduce, strict: opts.strict })
+        : merged;
+      const f = mapFlat(flattenTokens(r), opts, customMap);
+      blocks.push({
+        selector: `${baseSelector}[data-brand="${b}"]`,
+        flat: f,
+      });
     }
   }
 

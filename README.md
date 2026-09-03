@@ -26,6 +26,9 @@ node src/cli.js tokens.json -o output.css
 token-to-css <input.json> [options]
 token-to-css kit <input.json> [--out-dir dist] [options]
 token-to-css lint <input.json> [--contract schema.json] [--json]
+token-to-css reverse <file.css> [-o tokens.json]
+token-to-css snapshot <input.json> [-o snap.json]
+token-to-css history <snap-a.json> <snap-b.json> [snap-c.json ...]
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); e.g. scss:out.scss
@@ -156,6 +159,36 @@ token-to-css lint tokens.json --contract contract.json
 token-to-css tokens.json -o theme.css --check || npm run build:tokens
 ```
 
+**Reverse (CSS/SCSS → tokens).** `reverse` parses generated CSS/SCSS back into a
+token tree — best-effort round-trip. `:root` becomes the base tree,
+`[data-mode="x"]` folds into `modes.x`, `[data-brand="x"]` folds into
+`brands.x`, and barefoot `--bf-*` vars map back to token paths:
+
+```bash
+token-to-css reverse theme.css -o tokens.json
+```
+
+Values are kept verbatim (already resolved in generated output). Because
+kebab-case is lossy, a `color.primary` leaf and a `color.primaryHover` token
+both kebab to `color-primary-*`: on collision the exact leaf wins and the nested
+branch is dropped. Non-colliding token names round-trip byte-for-byte
+(`reverse` → `convert` reproduces the original CSS).
+
+**Style Dictionary interchange.** `reverseStyleDictionary(sd)` unwraps
+`{ value: … }` leaves back into plain tokens, pairing with the
+`style-dictionary` output format for two-way interchange.
+
+**Cross-version diffing.** `snapshot` captures the fully resolved tree, and
+`history` diffs a sequence of snapshots across versions:
+
+```bash
+token-to-css snapshot tokens@1.json -o snap-1.json
+token-to-css snapshot tokens@2.json -o snap-2.json
+token-to-css history snap-1.json snap-2.json
+# ## snap-1.json -> snap-2.json: +0 -1 ~3
+#   ~ color-primary: #111 -> #222
+```
+
 ## Stability & SemVer
 
 `token-to-css` follows **Semantic Versioning**.
@@ -169,8 +202,8 @@ token-to-css tokens.json -o theme.css --check || npm run build:tokens
   `registerPlugin`, `validateTokens`, `parseLocated`, `lintTokens`,
   `checkContract`, `buildKit` / `buildKitCSS` / `buildThemeJS` / `buildBindings` /
   `buildPreviewHTML` / `splitThemes`, `buildDocsSite`, `buildExplorerHTML`,
-  and the TypeScript types are part of the supported contract. Breaking
-  changes to these require a major version bump.
+  `reverse`, `reverseStyleDictionary`, and the TypeScript types are part of the
+  supported contract. Breaking changes to these require a major version bump.
 - **Output shape**: CSS variable names, selectors, and the Source Map v3 format
   are stable. New output formats are added in minor versions and never change
   existing ones.

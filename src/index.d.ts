@@ -29,6 +29,7 @@ export interface ConvertOptions {
   sourceComments?: boolean;
   preset?: "tailwind" | "open-props";
   modes?: string[];
+  brands?: string[];
   brand?: string;
   strict?: boolean;
 }
@@ -161,3 +162,6 @@ export function buildPreviewHTML(tokens: Tokens, options?: ConvertOptions & { ti
 export function buildKit(tokens: Tokens, options?: ConvertOptions & { title?: string; brands?: string[] }): KitResult;
 export function buildDocsSite(tokens: Tokens, options?: ConvertOptions & { title?: string }): string;
 export function buildExplorerHTML(tokens: Tokens, options?: ConvertOptions & { files?: { name: string }[] }): string;
+
+export function reverse(css: string, options?: { barefoot?: boolean }): Tokens;
+export function reverseStyleDictionary(sd: unknown): Tokens;
