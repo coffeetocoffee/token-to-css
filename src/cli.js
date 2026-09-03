@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync, watch, existsSync, mkdirSync } from "node:fs";
 import { createServer } from "node:http";
-import { resolve, join as joinPath } from "node:path";
+import { resolve, join as joinPath, dirname } from "node:path";
 import {
   convert,
   convertToMap,
@@ -12,6 +12,7 @@ import {
   reverse,
   resolveReferences,
 } from "./index.js";
+import { applyReversedIntoSource, computeDrift } from "./sync.js";
 import { deepMerge } from "./merge.js";
 import { expandGlob, globBaseDir } from "./glob.js";
 import { parseLocated } from "./locate.js";
@@ -56,6 +57,10 @@ Usage:
   token-to-css <input.json> [options]
   token-to-css kit <input.json> [--out-dir dist] [options]
   token-to-css lint <input.json> [--contract schema.json] [--json]
+  token-to-css reverse <file.css> [-o tokens.json]
+  token-to-css snapshot <input.json> [-o snap.json]
+  token-to-css history <snap-a.json> <snap-b.json> [snap-c.json ...]
+  token-to-css sync <input.json> [options]
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); prefix format, e.g. scss:out.scss
@@ -89,6 +94,7 @@ Subcommands:
   reverse <file>      Parse CSS/SCSS back into a token tree (best-effort round-trip)
   snapshot <input>    Write the fully resolved token tree (for cross-version diffing)
   history <a> <b>...  Diff a sequence of snapshots across versions
+  sync <input>        Watch tokens + artifacts; external edits reverse-sync back
 `);
 }
 
@@ -261,6 +267,22 @@ function enforceContract(merged, contractPath) {
   checkContract(merged, schema);
 }
 
+/**
+ * Write only when content differs from what's on disk, so re-generation is a
+ * no-op write. This keeps `sync` watch loops from re-triggering on their own
+ * output (a regenerated file that matches the external edit writes nothing).
+ */
+function safeWrite(path, content) {
+  const rp = resolve(process.cwd(), path);
+  try {
+    if (readFileSync(rp, "utf8") === content) return false;
+  } catch {
+    /* file missing; write below */
+  }
+  writeFileSync(rp, content, "utf8");
+  return true;
+}
+
 function generateAll(paths, options, outputs) {
   try {
     if (options.mapPath) {
@@ -284,19 +306,18 @@ function generateAll(paths, options, outputs) {
           sourcesContent,
         });
         const mapPath = `${out.path}.map`;
-        writeFileSync(mapPath, JSON.stringify(map, null, 2), "utf8");
+        safeWrite(mapPath, JSON.stringify(map, null, 2));
         const base = out.path.split(/[\\/]/).pop();
-        writeFileSync(
-          resolve(process.cwd(), out.path),
-          `${css}/*# sourceMappingURL=${base}.map */\n`,
-          "utf8"
+        safeWrite(
+          out.path,
+          `${css}/*# sourceMappingURL=${base}.map */\n`
         );
         console.error(`wrote ${format} to ${resolve(process.cwd(), out.path)}`);
       } else {
         const css = convert(merged, { ...options, format });
         if (out.path) {
           const outPath = resolve(process.cwd(), out.path);
-          writeFileSync(outPath, css, "utf8");
+          safeWrite(outPath, css);
           console.error(`wrote ${format} to ${outPath}`);
         } else {
           process.stdout.write(css);
@@ -396,8 +417,25 @@ function watchFile(source, onChange) {
     clearTimeout(timer);
     timer = setTimeout(onChange, 50);
   };
-  const w = watch(source, { persistent: true }, fire);
-  w.on("error", () => {});
+  const attach = (w) => {
+    if (w && typeof w.on === "function") w.on("error", () => {});
+  };
+  try {
+    attach(watch(source, { persistent: true }, fire));
+  } catch {
+    // source may not exist yet (e.g. generated on first run); watch its parent
+    // directory and react only to this file's creation/edits.
+    const base = dirname(source);
+    try {
+      attach(
+        watch(base, { persistent: true }, (_ev, fn) => {
+          if (fn && resolve(base, fn) === resolve(source)) fire();
+        })
+      );
+    } catch {
+      /* directory watching unsupported here */
+    }
+  }
 }
 
 function startServer(outputs, port, explorerHtml) {
@@ -509,7 +547,8 @@ export function run(argv = process.argv.slice(2)) {
     args._[0] === "lint" ||
     args._[0] === "reverse" ||
     args._[0] === "snapshot" ||
-    args._[0] === "history"
+    args._[0] === "history" ||
+    args._[0] === "sync"
       ? args._[0]
       : null;
   const input = sub ? args._[1] : args._[0];
@@ -707,6 +746,130 @@ export function run(argv = process.argv.slice(2)) {
         prevName = curName;
         prev = cur;
       }
+      return 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
+  if (sub === "sync") {
+    try {
+      if (!input && imports.length === 0 && globs.length === 0 && !args.stdin) {
+        console.error("error: sync requires an input file: token-to-css sync <input.json> [options]");
+        process.exitCode = 1;
+        return 1;
+      }
+      const sourceFile =
+        !args.stdin && !imports.length && !globs.length && input
+          ? resolve(process.cwd(), input)
+          : null;
+      if (!sourceFile) {
+        console.error(
+          "sync: --import/--glob/--stdin inputs have no single source file to write back to; running forward-only watch"
+        );
+      }
+
+      // Build the outputs to watch. Default to a sibling .css when nothing given.
+      const userOutputs = parseOutputs(
+        [...collect(config.output), ...collect(args.output || args.o)],
+        options.format
+      );
+      const outputs =
+        userOutputs.length > 0
+          ? userOutputs
+          : [{ format: null, path: sourceFile ? `${sourceFile.replace(/\.json$/i, "")}.sync.css` : null }];
+
+      const writtenAt = new Map();
+      const markWritten = (p) => writtenAt.set(resolve(process.cwd(), p), Date.now());
+
+      const paths = [
+        ...(input ? [input] : []),
+        ...imports,
+        ...globs.flatMap((g) => expandGlob(g)),
+      ];
+      const rebuild = () => [
+        ...(input ? [input] : []),
+        ...imports,
+        ...globs.flatMap((g) => expandGlob(g)),
+      ];
+
+      const generate = () => {
+        const okGen = generateAll(rebuild(), options, outputs);
+        for (const o of outputs) if (o.path) markWritten(o.path);
+        if (sourceFile) markWritten(sourceFile);
+        return okGen;
+      };
+
+      const watched = new Set();
+      const watchPath = (p, onChange) => {
+        const rp = resolve(process.cwd(), p);
+        if (watched.has(rp)) return;
+        watched.add(rp);
+        watchFile(rp, () => onChange());
+      };
+
+      const onOutputChange = (p) => {
+        try {
+          const text = readFileSync(resolve(process.cwd(), p), "utf8");
+          const reversed = reverse(text, options);
+          if (!sourceFile) {
+            console.error(`sync: ${p} changed but no single source file; regenerating only`);
+            generate();
+            return;
+          }
+          const source = JSON.parse(readFileSync(sourceFile, "utf8"));
+          const { source: updated, changed, skipped } = applyReversedIntoSource(source, reversed);
+          if (changed.length === 0 && skipped.length === 0) return;
+          writeFileSync(sourceFile, `${JSON.stringify(updated, null, 2)}\n`, "utf8");
+          console.error(
+            `sync: ${p} -> ${sourceFile}: ~${changed.length}` +
+              (skipped.length ? ` (skipped ${skipped.length} colliding name(s))` : "")
+          );
+          generate();
+        } catch (e) {
+          console.error(`sync error on ${p}: ${e.message}`);
+        }
+      };
+
+      // Forward: source change regenerates outputs.
+      for (const f of paths) watchPath(f, () => {
+        console.error(`sync: ${f} changed; regenerating`);
+        generate();
+      });
+      // Reverse: output artifact edit folds back into the source.
+      for (const o of outputs) if (o.path) watchPath(o.path, () => onOutputChange(o.path));
+      // Watch glob base dirs for new files.
+      for (const g of globs) {
+        const base = globBaseDir(g);
+        try {
+          watch(base, { persistent: true, recursive: true }, () => generate());
+        } catch {
+          /* directory watching unsupported here */
+        }
+      }
+      console.error(
+        `sync: watching ${[...watched].length} path(s)` + (sourceFile ? `; source of truth: ${sourceFile}` : "")
+      );
+      // Watchers are live before the first generation so an external edit in the
+      // gap between generation and watching can't be missed.
+      let ok = true;
+      if (!(args.initial === "false")) ok = generate();
+      if (options.serve) {
+        let explorerHtml = null;
+        try {
+          const { merged } = loadLocated(rebuild());
+          explorerHtml = buildExplorerHTML(merged, {
+            ...options,
+            files: outputs.filter((o) => o.path).map((o) => ({ name: o.path.split(/[\\/]/).pop() })),
+          });
+        } catch {
+          explorerHtml = null;
+        }
+        startServer(outputs, options.port, explorerHtml);
+      }
+      process.exitCode = ok ? 0 : 1;
       return 0;
     } catch (err) {
       console.error(`error: ${err.message}`);

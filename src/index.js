@@ -31,6 +31,7 @@ export {
 } from "./kit.js";
 export { buildDocsSite, buildExplorerHTML } from "./docs.js";
 export { reverse, reverseStyleDictionary } from "./reverse.js";
+export { applyReversedIntoSource, computeDrift, canSetPath } from "./sync.js";
 
 const registeredFormats = {};
 

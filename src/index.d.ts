@@ -165,3 +165,15 @@ export function buildExplorerHTML(tokens: Tokens, options?: ConvertOptions & { f
 
 export function reverse(css: string, options?: { barefoot?: boolean }): Tokens;
 export function reverseStyleDictionary(sd: unknown): Tokens;
+
+export interface SyncResult {
+  source: Tokens;
+  changed: string[];
+  skipped: string[];
+}
+export function applyReversedIntoSource(source: Tokens, reversed: Tokens): SyncResult;
+export function computeDrift(source: Tokens, reversed: Tokens): Record<
+  string,
+  { added: Record<string, string>; changed: Record<string, { from: string; to: string }> }
+>;
+export function canSetPath(node: Tokens, flatName: string): boolean;

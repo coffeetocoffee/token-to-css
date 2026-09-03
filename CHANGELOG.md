@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-09-03
+
+### Added
+- **`sync`**: bidirectional watch mode. Generates the kit/artifacts once, then
+  watches both the source tokens file (forward: regenerate on edit) and the
+  emitted artifacts (reverse: an external edit to the CSS/`tokens.ts` is parsed
+  back via `reverse()` and folded into `tokens.json`, then everything is
+  re-emitted). Source of truth stays `tokens.json`. CLI:
+  `token-to-css sync <input.json> [options]`.
+- **`applyReversedIntoSource(source, reversed)`**: pure helper that folds a
+  reversed artifact back into the source tree, applying only unambiguous
+  (non-colliding) names; colliding kebab-case names are reported in `skipped`
+  and left untouched (keeps the round-trip idempotent and lossless where
+  possible).
+- **`computeDrift(source, reversed)`**: returns per-group (`base`, `modes.*`,
+  `brands.*`) added/changed token names for drift reporting.
+- **Idempotent writes**: `generate` now skips writing a file when its content is
+  unchanged, so `sync` watch loops never re-trigger on their own output.
+
+### Changed
+- `convert` output (css/barefoot) now emits `[data-brand="x"]` blocks
+  alongside `[data-mode="x"]` (behavioral change flagged by the major bump in
+  v3.0; retained here under the v4.0 major).
+- *Why major:* introduces a persistent `sync` process and the reverse-merge
+  contract; `reverse` is best-effort (kebab collisions resolve to the leaf and
+  drop the nested branch), so `sync` scopes reverse-sync to non-colliding names.
+
+
 ## [3.0.0] - 2026-09-03
 
 ### Added

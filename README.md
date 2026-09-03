@@ -29,6 +29,7 @@ token-to-css lint <input.json> [--contract schema.json] [--json]
 token-to-css reverse <file.css> [-o tokens.json]
 token-to-css snapshot <input.json> [-o snap.json]
 token-to-css history <snap-a.json> <snap-b.json> [snap-c.json ...]
+token-to-css sync <input.json> [options]   # generate, then watch + reverse-sync edits back
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); e.g. scss:out.scss
@@ -188,6 +189,25 @@ token-to-css history snap-1.json snap-2.json
 # ## snap-1.json -> snap-2.json: +0 -1 ~3
 #   ~ color-primary: #111 -> #222
 ```
+
+**Living design system (`sync`).** `sync` keeps `tokens.json` authoritative *and*
+reconciles external edits to generated artifacts. It generates the outputs once,
+then watches both the source file (forward: regenerate) and the emitted artifacts
+(reverse: an edit to the CSS is parsed back with `reverse` and folded into
+`tokens.json`, then everything re-emits):
+
+```bash
+token-to-css sync tokens.json --out-dir dist
+# dist/theme.css edited by hand -> token-to-css sync folds it back into tokens.json
+```
+
+Reverse-sync only applies unambiguous (non-colliding) names; colliding kebab-case
+names are skipped and reported. Generation is idempotent, so `sync` never
+re-triggers on its own output.
+
+**Drift reporting.** `computeDrift(source, reversed)` returns the per-group
+(`base`, `modes.*`, `brands.*`) added/changed token names, the basis for a
+"what diverged and why" report.
 
 ## Stability & SemVer
 
