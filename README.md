@@ -190,11 +190,11 @@ token-to-css history snap-1.json snap-2.json
 #   ~ color-primary: #111 -> #222
 ```
 
-**Living design system (`sync`).** `sync` keeps `tokens.json` authoritative *and*
-reconciles external edits to generated artifacts. It generates the outputs once,
-then watches both the source file (forward: regenerate) and the emitted artifacts
-(reverse: an edit to the CSS is parsed back with `reverse` and folded into
-`tokens.json`, then everything re-emits):
+**Living design system (`sync`).** _Experimental._ `sync` keeps `tokens.json`
+authoritative *and* reconciles external edits to generated artifacts. It
+generates the outputs once, then watches both the source file (forward:
+regenerate) and the emitted artifacts (reverse: an edit to the CSS is parsed
+back with `reverse` and folded into `tokens.json`, then everything re-emits):
 
 ```bash
 token-to-css sync tokens.json --out-dir dist
@@ -203,11 +203,13 @@ token-to-css sync tokens.json --out-dir dist
 
 Reverse-sync only applies unambiguous (non-colliding) names; colliding kebab-case
 names are skipped and reported. Generation is idempotent, so `sync` never
-re-triggers on its own output.
+re-triggers on its own output. Its behavior and library API may change in a
+**minor** release while it bakes — it is not covered by the major-version
+stability guarantee.
 
 **Drift reporting.** `computeDrift(source, reversed)` returns the per-group
 (`base`, `modes.*`, `brands.*`) added/changed token names, the basis for a
-"what diverged and why" report.
+"what diverged and why" report. Also experimental.
 
 ## Stability & SemVer
 

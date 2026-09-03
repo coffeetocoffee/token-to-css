@@ -756,6 +756,9 @@ export function run(argv = process.argv.slice(2)) {
 
   if (sub === "sync") {
     try {
+      console.error(
+        "sync is experimental: its behavior and library API may change in a minor release without a major bump."
+      );
       if (!input && imports.length === 0 && globs.length === 0 && !args.stdin) {
         console.error("error: sync requires an input file: token-to-css sync <input.json> [options]");
         process.exitCode = 1;

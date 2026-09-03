@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.1] - 2026-09-03
+
+### Changed
+- Marked the `sync` command and its library surface (`applyReversedIntoSource`,
+  `computeDrift`, `canSetPath`) as **experimental**. `sync` may change in a minor
+  release without a major bump while it bakes; it is not covered by the
+  major-version stability guarantee. The CLI now prints an experimental notice
+  when `sync` runs.
+
+
 ## [4.0.0] - 2026-09-03
 
 ### Added

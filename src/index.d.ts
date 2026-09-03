@@ -166,6 +166,10 @@ export function buildExplorerHTML(tokens: Tokens, options?: ConvertOptions & { f
 export function reverse(css: string, options?: { barefoot?: boolean }): Tokens;
 export function reverseStyleDictionary(sd: unknown): Tokens;
 
+/**
+ * Experimental: the `sync` surface (reverse-merge + drift) may change in a
+ * minor release without a major bump while it bakes.
+ */
 export interface SyncResult {
   source: Tokens;
   changed: string[];
