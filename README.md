@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![npm downloads](https://img.shields.io/npm/dm/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v2.0.0](https://img.shields.io/badge/phase-2.0.0%20%E2%80%94%20major-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v3.0.0](https://img.shields.io/badge/phase-3.0.0%20%E2%80%94%20major-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 ## Install
