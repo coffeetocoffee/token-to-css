@@ -245,9 +245,44 @@ export function lintTokens(tokens, options = {}) {
     }
   }
 
+  lintEmptyGroups(raw, issues, options);
+
   const errors = issues.filter((i) => i.severity === "error").length;
   const warnings = issues.filter((i) => i.severity !== "error").length;
   return { issues, errors, warnings };
+}
+
+/**
+ * Lint rule: detect groups (objects) that contain no token leaves — dead
+ * branches that ship no CSS variables. Off when `options.noEmptyGroups`.
+ */
+function collectEmptyGroups(node, path, into) {
+  if (!node || typeof node !== "object" || Array.isArray(node)) return;
+  if ("$value" in node) return;
+  let anyLeaf = false;
+  for (const [k, v] of Object.entries(node)) {
+    if (v && typeof v === "object" && !Array.isArray(v) && !("$value" in v)) {
+      collectEmptyGroups(v, [...path, k], into);
+    } else {
+      anyLeaf = true;
+    }
+  }
+  if (!anyLeaf) into.push(path.join("."));
+}
+
+/** Augment `lintTokens` issues with empty-group findings. Mutates `issues`. */
+export function lintEmptyGroups(tokens, issues, options = {}) {
+  if (options.noEmptyGroups) return;
+  const groups = [];
+  collectEmptyGroups(tokens, [], groups);
+  for (const g of groups) {
+    issues.push({
+      rule: "empty-group",
+      message: `empty group "${g || "<root>"}" has no token leaves`,
+      path: g || null,
+      severity: "warning",
+    });
+  }
 }
 
 /**

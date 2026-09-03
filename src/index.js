@@ -14,7 +14,7 @@ import {
   splitThemes,
   THEME_JS,
 } from "./kit.js";
-import { buildDocsSite, buildExplorerHTML } from "./docs.js";
+import { buildDocsSite, buildExplorerHTML, buildProvenance } from "./docs.js";
 import { reverse, reverseStyleDictionary } from "./reverse.js";
 import { buildNameRegistry, registryFromJSON, setByPath, getByPath } from "./registry.js";
 import { createTokenServer, resolveTree } from "./serve.js";
@@ -45,7 +45,7 @@ export {
   splitThemes,
   THEME_JS,
 } from "./kit.js";
-export { buildDocsSite, buildExplorerHTML } from "./docs.js";
+export { buildDocsSite, buildExplorerHTML, buildProvenance } from "./docs.js";
 export { reverse, reverseStyleDictionary } from "./reverse.js";
 export { applyReversedIntoSource, computeDrift, canSetPath } from "./sync.js";
 
@@ -380,6 +380,8 @@ function buildOutput(tokens, options = {}) {
     css = renderReport(resolvedBase, modeDefs, opts);
   } else if (opts.format === "docs") {
     css = buildDocsSite(tokens, opts);
+  } else if (opts.format === "provenance") {
+    css = buildProvenance(tokens, opts);
   } else if (opts.format === "ts") {
     css = buildBindings(tokens, opts).ts;
   } else if (opts.format === "js") {

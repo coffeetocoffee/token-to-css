@@ -5,6 +5,8 @@ import {
   lighten,
   darken,
   mix,
+  oklchToRgb,
+  labToRgb,
 } from "./color.js";
 
 function getPath(obj, path) {
@@ -53,6 +55,44 @@ const BUILTIN_FUNCTIONS = {
     if (nums.some((n) => n == null))
       throw new Error("hsl() expects numeric arguments");
     return formatColor(hslToRgb(nums[0], nums[1] / 100, nums[2] / 100));
+  },
+  oklch(args) {
+    const at = (i) => (args[i] && args[i].kind === "num" ? args[i] : null);
+    const L = at(0);
+    const C = at(1);
+    const H = at(2);
+    if (!L) throw new Error("oklch() expects numeric arguments");
+    const l = L.unit === "%" ? L.value / 100 : L.value;
+    return formatColor(oklchToRgb(l, C ? C.value : 0, H ? H.value : 0));
+  },
+  oklab(args) {
+    const at = (i) => (args[i] && args[i].kind === "num" ? args[i] : null);
+    const L = at(0);
+    if (!L) throw new Error("oklab() expects numeric arguments");
+    const l = L.unit === "%" ? L.value / 100 : L.value;
+    const a = at(1);
+    const b = at(2);
+    return formatColor(oklabToRgb(l, a ? a.value : 0, b ? b.value : 0));
+  },
+  lab(args) {
+    const at = (i) => (args[i] && args[i].kind === "num" ? args[i] : null);
+    const L = at(0);
+    if (!L) throw new Error("lab() expects numeric arguments");
+    const l = L.unit === "%" ? L.value : L.value;
+    const a = at(1);
+    const b = at(2);
+    return formatColor(labToRgb(l, a ? a.value : 0, b ? b.value : 0));
+  },
+  lch(args) {
+    const at = (i) => (args[i] && args[i].kind === "num" ? args[i] : null);
+    const L = at(0);
+    const C = at(1);
+    const H = at(2);
+    if (!L) throw new Error("lch() expects numeric arguments");
+    const l = L.unit === "%" ? L.value : L.value;
+    const c = C ? C.value : 0;
+    const h = ((H ? H.value : 0) * Math.PI) / 180;
+    return formatColor(labToRgb(l, c * Math.cos(h), c * Math.sin(h)));
   },
 };
 
@@ -255,10 +295,16 @@ function parse(tokens) {
       if (peek() && peek().type === "lparen") {
         next();
         const args = [];
+        const argStart = (t) =>
+          t &&
+          (t.type === "num" ||
+            t.type === "color" ||
+            t.type === "ident" ||
+            t.type === "lparen");
         if (!(peek() && peek().type === "rparen")) {
           args.push(parseAddSub());
-          while (peek() && peek().type === "comma") {
-            next();
+          while (peek() && (peek().type === "comma" || argStart(peek()))) {
+            if (peek().type === "comma") next();
             args.push(parseAddSub());
           }
         }

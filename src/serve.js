@@ -118,11 +118,19 @@ document.getElementById("propose").addEventListener("click",async ()=>{
  * - `GET /` serves the explorer or, with `playground`, the live playground.
  * - `GET /tokens-client.js` serves the generated client SDK.
  *
+ * Auth / scoping (v6.0): pass `options.auth` as a `{ token: "read" | "write" }`
+ * map or a resolver `(token) => "read" | "write" | null`. When auth is enabled,
+ * every request needs a `Authorization: Bearer <token>` header; `GET` accepts
+ * read or write scope, `POST /tokens` requires write scope (a read-only token is
+ * rejected with 403 and the source file is never mutated). With no `auth`, the
+ * server is open (legacy behavior).
+ *
  * Returns the `http.Server` with `.broadcast(event)` and `.setTokens(tree)`
  * helpers so connectors (e.g. the Figma connector) can push into the mesh.
  */
 export function createTokenServer(options = {}) {
   const tokensPath = options.tokensPath ? resolvePath(options.tokensPath) : null;
+  const auth = options.auth || null;
   const useRegistry = Boolean(options.registry);
   let sourceTree = options.tokens ? structuredClone(options.tokens) : null;
   if (tokensPath && sourceTree == null) sourceTree = readJSON(tokensPath);
@@ -172,6 +180,24 @@ export function createTokenServer(options = {}) {
     const url = new URL(req.url, "http://localhost");
     const path = url.pathname;
     const q = url.searchParams;
+
+    // Auth / scoping gate (v6.0). Open server when no `auth` configured.
+    if (auth) {
+      const header = req.headers["authorization"] || "";
+      const m = /^Bearer\s+(.+)$/i.exec(header);
+      const token = m ? m[1].trim() : null;
+      const scope = token ? (typeof auth === "function" ? auth(token) : auth[token] || null) : null;
+      if (!scope) {
+        res.writeHead(401, { "content-type": "text/plain" });
+        res.end("unauthorized: missing or invalid bearer token");
+        return;
+      }
+      if (req.method === "POST" && scope !== "write") {
+        res.writeHead(403, { "content-type": "text/plain" });
+        res.end("forbidden: write scope required");
+        return;
+      }
+    }
 
     if (req.method === "GET" && path === "/tokens-client.js") {
       res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });

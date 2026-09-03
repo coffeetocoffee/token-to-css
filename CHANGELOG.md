@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.0] - 2026-09-03
+
+### Added — Post-server hardening
+
+- **Auth / scoping for `serve`** (`--auth <file>`): token-gated access. The auth
+  file is a JSON map of `token -> "read" | "write"` (or `{ tokens: [{ token, scope }] }`).
+  Every request needs `Authorization: Bearer <token>`; `GET` accepts read or write
+  scope, `POST /tokens` requires **write** scope. A read-only token is rejected with
+  `403` and the source file is never mutated; a missing/invalid token gets `401`.
+  With no `--auth`, the server stays open (legacy behavior).
+- **Built-in color spaces**: `oklch()`, `oklab()`, `lab()`, and `lch()` are now
+  first-class color values and reference functions (registered alongside `rgb`/`hsl`).
+  Tokens may be authored directly in OKLCH/Lab (`color.primary: "oklch(0.7 0.15 30)"`)
+  and they resolve to sRGB; they also compose inside transforms
+  (`lighten(oklch(0.6 0.1 250), 20%)`).
+- **`--format provenance`** (and `buildProvenance`): a Wikipedia-style token page
+  showing each token's resolved value, a swatch, and its reverse dependency graph
+  ("used by") so you can see blast radius before editing.
+- **Extra lint rule**: `empty-group` flags groups that contain no token leaves
+  (dead branches that ship no CSS variables). Suppress with `lint --no-empty-groups`
+  (or `{ noEmptyGroups: true }`).
+- **Package-split foundation**: `src/core.js` freezes the plugin-free public
+  surface a future `@token-to-css/core` would expose. Plugins (e.g. the Figma
+  connector) depend only on that surface via `registerPlugin` / `registerFunction` /
+  `registerFormat`, so `core` has zero plugin dependencies and each plugin can ship
+  and install independently.
+
+### Why major
+
+Adds a server auth contract and new public outputs/API (`provenance`, color-space
+functions, `core` entry). The `--auth` envelope (401/403 semantics) and the
+`provenance` HTML shape are part of the 6.x public surface and may evolve within
+the line before a v7.
+
 ## [5.0.0] - 2026-09-03
 
 ### Added — The Token Server (live design-system mesh)
@@ -298,7 +332,8 @@ connectors graduate it.)
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v5.0.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v6.0.0...HEAD
+[6.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v5.0.0...v6.0.0
 [5.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v4.0.1...v5.0.0
 [4.0.1]: https://github.com/coffeetocoffee/token-to-css/compare/v4.0.0...v4.0.1
 [4.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v3.0.0...v4.0.0

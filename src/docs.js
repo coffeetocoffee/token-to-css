@@ -169,11 +169,73 @@ ${modeNote}
 </table>
 <h2>Files</h2>
 ${links}
-<script>
-const q=document.getElementById("q"),rows=[...document.querySelectorAll("#rows tr")];
-q.addEventListener("input",()=>{const s=q.value.toLowerCase();for(const r of rows)r.style.display=r.dataset.name.includes(s)?"":"none"});
-document.addEventListener("click",async e=>{const b=e.target.closest("[data-copy]");if(!b)return;try{await navigator.clipboard.writeText(b.dataset.copy);b.textContent="copied!";setTimeout(()=>b.textContent="copy",800)}catch{const t=document.createElement("textarea");t.value=b.dataset.copy;document.body.appendChild(t);t.select();document.execCommand("copy");t.remove()}});
-</script>
+  <script>
+  const q=document.getElementById("q"),rows=[...document.querySelectorAll("#rows tr")];
+  q.addEventListener("input",()=>{const s=q.value.toLowerCase();for(const r of rows)r.style.display=r.dataset.name.includes(s)?"":"none"});
+  document.addEventListener("click",async e=>{const b=e.target.closest("[data-copy]");if(!b)return;try{await navigator.clipboard.writeText(b.dataset.copy);b.textContent="copied!";setTimeout(()=>b.textContent="copy",800)}catch{const t=document.createElement("textarea");t.value=b.dataset.copy;document.body.appendChild(t);t.select();document.execCommand("copy");t.remove()}});
+  </script>
+  </body>
+  </html>
+  `;
+}
+
+/**
+ * Wikipedia-style provenance view: every token with its resolved value, a swatch,
+ * and the reverse dependency graph ("used by"). Useful for auditing which tokens
+ * depend on a given one before changing it.
+ */
+export function buildProvenance(tokens, options = {}) {
+  const normalized = normalizeLocal(tokens);
+  const base = stripThemes(normalized);
+  const resolved =
+    options.resolve === false ? base : resolveReferences(base, { reduce: options.reduce !== false });
+  const rows = dottedRows(resolved);
+  const allNames = new Set(rows.map((r) => r.name));
+  const rawRows = dottedRows(base);
+  const usedBy = {};
+  const refRe = /\{([\w.]+)\}/g;
+  for (const r of rawRows) {
+    let m;
+    while ((m = refRe.exec(r.value))) {
+      const target = m[1];
+      if (allNames.has(target)) (usedBy[target] = usedBy[target] || []).push(r.name);
+    }
+  }
+  const title = escHtml(options.title || "Token provenance");
+  const sections = rows
+    .map(({ name, value }) => {
+      const used = (usedBy[name] || [])
+        .map((u) => `<code>${escHtml(u)}</code>`)
+        .join(", ") || "<em>unused</em>";
+      const swatch = /^(#|rgba?\(|hsl|oklch|oklab|lab|lch)/i.test(value)
+        ? `<span class="sw" style="background:${escHtml(value)}"></span>`
+        : "";
+      return `<section class="tok">
+  <h3><code>${escHtml(name)}</code></h3>
+  <p>Resolved: <code>${escHtml(value)}</code> ${swatch}</p>
+  <p class="used">Used by: ${used}</p>
+</section>`;
+    })
+    .join("\n");
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${title}</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:2rem;max-width:60rem}
+.tok{border:1px solid #e4e4e7;border-radius:.5rem;padding:1rem 1.25rem;margin:1rem 0}
+h3{margin:0 0 .5rem}
+code{background:#f4f4f5;padding:.1rem .4rem;border-radius:.25rem}
+.used{color:#52525b}
+.sw{display:inline-block;width:1.25rem;height:1.25rem;border-radius:.3rem;border:1px solid #ccc;vertical-align:middle}
+</style>
+</head>
+<body>
+<h1>${title}</h1>
+<p>${rows.length} tokens</p>
+${sections}
 </body>
 </html>
 `;

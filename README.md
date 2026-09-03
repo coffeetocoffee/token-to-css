@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![npm downloads](https://img.shields.io/npm/dm/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v5.0.0](https://img.shields.io/badge/phase-5.0.0%20%E2%80%94%20major-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v6.0.0](https://img.shields.io/badge/phase-6.0.0%20%E2%80%94%20major-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 ## Install
@@ -79,6 +79,7 @@ Options:
 | `schema`           | a JSON Schema describing the token structure                      |
 | `report`           | a Markdown table of every token and its resolved value            |
 | `docs`             | a static, searchable HTML token site (built on the report data)   |
+| `provenance`       | a Wikipedia-style HTML page with each token's resolved value and reverse dependency graph ("used by") |
 | `ts`               | typed bindings (`tokens.ts`: `TokenName`, `TokenMap`, consts)     |
 | `js`               | typed bindings (`tokens.js`: `tokens` map + consts)               |
 
@@ -94,6 +95,10 @@ token-to-css tokens.json -f ts -o tokens.ts
 **Color transforms.** References can call functions on colors:
 `alpha(#3b82f6, 50%)`, `lighten(#000, 20%)`, `darken(#fff, 20%)`,
 `mix(#f00, #00f, 50%)`. These compose with `{references}` and arithmetic.
+Tokens may also be authored directly in **OKLCH / Lab** (`color.primary:
+"oklch(0.7 0.15 30)"`, `"lab(60% 40 -20)"`) and resolve to sRGB; the
+`oklch()`, `oklab()`, `lab()`, and `lch()` functions are also usable inside
+references (`lighten(oklch(0.6 0.1 250), 20%)`).
 
 **Multi-brand.** Put brand overrides under a `brands` (or `brand`) key and
 select one with `--brand acme`:
@@ -264,6 +269,17 @@ const figma = registerFigmaConnector({ token, fileKey });
 await figma.push(tokens);            // tokens -> Figma variables
 const back = await figma.pull();     // Figma variables -> tokens
 ```
+
+**Auth & scoping.** Gate the mesh with `--auth tokens.json` (a JSON map of
+`token -> "read" | "write"`, or `{ tokens: [{ token, scope }] }`). Every request
+then needs `Authorization: Bearer <token>`; `GET` accepts read or write scope,
+`POST /tokens` requires write. A read-only token is rejected with `403` and the
+source file is never mutated — stakeholders can flip themes but not break source.
+
+**Provenance.** `token-to-css tokens.json -f provenance -o provenance.html`
+renders a Wikipedia-style page: each token with its resolved value, a swatch, and
+the reverse dependency graph ("used by") so you can see blast radius before
+editing. `lint` also flags `empty-group`s (groups with no token leaves).
 
 ## Stability & SemVer
 

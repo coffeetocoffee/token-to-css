@@ -44,6 +44,25 @@ before a v6.0):
 | ------- | ------------------- |
 | 5.0.0   | `serve` (REST+SSE), generated client SDK, lossless canonical name registry, Figma connector (experimental), shareable playground |
 
+## From 5.x to 6.0
+
+v6.0 is a **major** because it adds server-side auth and new public outputs/API, but
+it is backward compatible at the CLI/library level — upgrading is drop-in. Highlights:
+
+- **Auth/scoping** for `serve` (`--auth <file>`): token-gated read/write scopes.
+  The 401/403 envelope is new; with no `--auth` the server stays open. If you
+  depend on the exact auth envelope, pin a major range — it may evolve within 6.x.
+- **Color spaces**: `oklch()`, `oklab()`, `lab()`, `lch()` are now resolved color
+  values and reference functions. Existing `rgb()`/`hsl()` usage is unchanged.
+- **`--format provenance`** and the `empty-group` lint rule are new opt-in outputs.
+- **Package-split foundation**: `src/core.js` freezes the plugin-free public
+  surface; the real `@token-to-css/core` npm split is deferred until a scoped org
+  is set up, but the plugin model (register via `registerPlugin`) is in place.
+
+| Version | What you can now do |
+| ------- | ------------------- |
+| 6.0.0   | `serve --auth` (read/write scopes), OKLCH/Lab color spaces, `provenance` format, `empty-group` lint, `core.js` entry |
+
 ## Stability guarantees (from 1.0.0)
 
 - **CLI flags** will not be removed or renamed except in a major version, and

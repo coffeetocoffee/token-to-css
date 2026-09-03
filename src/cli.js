@@ -83,6 +83,7 @@ Options:
   -M, --source-map      Write a <file>.map source map alongside each output file
   --registry            Emit/consume a canonical name registry (tokens.names.json) so
                        round-trips are lossless for kebab-colliding token names
+  --auth <file>         Enable token-gated access: JSON map of token -> "read"|"write"
   --strict              Fail on arithmetic with mismatched units (no calc() fallback)
   --diff <a> <b>       Print a token diff report for two token files, then exit
   --check               Dry-run: fail (exit 1) when an -o output is stale vs tokens
@@ -253,8 +254,10 @@ export const KNOWN_FORMATS = [
   "schema",
   "report",
   "docs",
+  "provenance",
   "ts",
   "js",
+  "figma",
 ];
 
 function parseOutputs(list, defaultFormat) {
@@ -605,6 +608,16 @@ export function run(argv = process.argv.slice(2)) {
   options.serve = Boolean(args.serve);
   options.registry = Boolean(args.registry);
   options.playground = Boolean(args.playground);
+  options.auth = null;
+  if (args.auth || config.auth) {
+    const authPath = resolve(process.cwd(), args.auth || config.auth);
+    const authJson = JSON.parse(readFileSync(authPath, "utf8"));
+    let map = {};
+    if (Array.isArray(authJson)) map = Object.fromEntries(authJson.map((t) => [t.token, t.scope]));
+    else if (authJson.tokens) map = Object.fromEntries(authJson.tokens.map((t) => [t.token, t.scope]));
+    else map = authJson;
+    options.auth = (token) => map[token] || null;
+  }
   options.port = args.port || args.p || config.port || 4173;
   options.stdin = Boolean(args.stdin);
   if (options.stdin) options.stdinText = readStdinSync();
@@ -935,6 +948,7 @@ export function run(argv = process.argv.slice(2)) {
         watch: true,
         playground: options.playground,
         registry: options.registry,
+        auth: options.auth,
         streamUrl: "/events",
       });
       server.listen(options.port, () =>

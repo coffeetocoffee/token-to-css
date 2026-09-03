@@ -2,9 +2,76 @@ function clamp(n, lo, hi) {
   return Math.min(hi, Math.max(lo, n));
 }
 
+function srgbGamma(x) {
+  x = clamp(x, 0, 1);
+  return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
+}
+
+function to255(n) {
+  return clamp(Math.round(n), 0, 255);
+}
+
+function numFrom(str) {
+  const m = /^([-+]?\d*\.?\d+)(%)?$/.exec(String(str).trim());
+  if (!m) return NaN;
+  let v = parseFloat(m[1]);
+  if (m[2]) v /= 100;
+  return v;
+}
+
+/** OKLab (L 0..1, a, b) -> sRGB bytes. Bjorn Ottosson's exact matrices. */
+export function oklabToRgb(L, a, b) {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+  const l = l_ * l_ * l_;
+  const m = m_ * m_ * m_;
+  const s = s_ * s_ * s_;
+  const r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  const g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  const bb = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s;
+  return { r: to255(srgbGamma(r) * 255), g: to255(srgbGamma(g) * 255), b: to255(srgbGamma(bb) * 255), a: 1 };
+}
+
+/** OKLCH (L 0..1, C, H deg) -> sRGB bytes. */
+export function oklchToRgb(L, C, H) {
+  const hr = (H * Math.PI) / 180;
+  return oklabToRgb(L, C * Math.cos(hr), C * Math.sin(hr));
+}
+
+/** CIE Lab (L 0..100, a, b) -> sRGB bytes (D65). */
+export function labToRgb(L, a, b) {
+  const y = (L + 16) / 116;
+  const x = a / 500 + y;
+  const z = y - b / 200;
+  const finv = (t) => (Math.pow(t, 3) > 0.008856 ? Math.pow(t, 3) : (t - 16 / 116) / 7.787);
+  const X = 0.95047 * finv(x);
+  const Y = 1.0 * finv(y);
+  const Z = 1.08883 * finv(z);
+  const r = X * 3.2406 - Y * 1.5372 - Z * 0.4986;
+  const g = -X * 0.9689 + Y * 1.8758 + Z * 0.0415;
+  const bb = X * 0.0557 - Y * 0.204 + Z * 1.057;
+  return { r: to255(srgbGamma(r) * 255), g: to255(srgbGamma(g) * 255), b: to255(srgbGamma(bb) * 255), a: 1 };
+}
+
 export function parseColor(str) {
   if (typeof str !== "string") return null;
   const s = str.trim();
+
+  const space = /^((?:oklch|oklab|lab|lch))\s*\(([^)]*)\)$/i.exec(s);
+  if (space) {
+    const kind = space[1].toLowerCase();
+    const parts = space[2].split(/[\s,/]+/).filter(Boolean).map((p) => numFrom(p));
+    if (parts.some((n) => Number.isNaN(n))) return null;
+    if (kind === "oklch") return oklchToRgb(parts[0], parts[1] || 0, parts[2] || 0);
+    if (kind === "oklab") return oklabToRgb(parts[0], parts[1] || 0, parts[2] || 0);
+    if (kind === "lab") return labToRgb(parts[0], parts[1] || 0, parts[2] || 0);
+    if (kind === "lch") {
+      const hr = ((parts[2] || 0) * Math.PI) / 180;
+      return labToRgb(parts[0], (parts[1] || 0) * Math.cos(hr), (parts[1] || 0) * Math.sin(hr));
+    }
+    return null;
+  }
 
   if (s.startsWith("#")) {
     let hex = s.slice(1);

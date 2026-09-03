@@ -15,8 +15,10 @@ export type Format =
   | "schema"
   | "report"
   | "docs"
+  | "provenance"
   | "ts"
-  | "js";
+  | "js"
+  | "figma";
 
 export interface ConvertOptions {
   format?: Format;
@@ -164,6 +166,7 @@ export function buildPreviewHTML(tokens: Tokens, options?: ConvertOptions & { ti
 export function buildKit(tokens: Tokens, options?: ConvertOptions & { title?: string; brands?: string[] }): KitResult;
 export function buildDocsSite(tokens: Tokens, options?: ConvertOptions & { title?: string }): string;
 export function buildExplorerHTML(tokens: Tokens, options?: ConvertOptions & { files?: { name: string }[] }): string;
+export function buildProvenance(tokens: Tokens, options?: ConvertOptions & { title?: string }): string;
 
 export function reverse(css: string, options?: { barefoot?: boolean; registry?: { pathOf(canonical: string): string[] | null } }): Tokens;
 export function reverseStyleDictionary(sd: unknown): Tokens;
