@@ -90,14 +90,45 @@ before a v8.0):
 | ------- | ------------------- |
 | 7.0.0   | Token governance (`$version`/`deprecated`/`replacedBy`), change-request/approval, migration codemods, org manifest, team namespaces, `deprecated-in-use` lint |
 
+## From 7.x to 8.0
+
+v8.0 is a **major** because it introduces the Universal Connector Hub: a new
+extension contract (`registerConnector`) plus three built-in connectors
+(Storybook, GitHub PR, CMS). The existing CLI flags and library API from 1.x–7.x
+are unchanged — upgrading is drop-in for `convert`, `lint`, `kit`, `reverse`,
+`sync`, `serve`, `migrate`, `federate`, `govern`, etc.
+
+What is **new** (and therefore its contracts may still evolve within the v8.x line
+before a v9.0):
+
+- **Connector SDK** (`src/connect.js`): `registerConnector({ name, pull, push, formats? })`
+  registers an external-system adapter. `getConnector(name)`, `listConnectors()`,
+  `connectorPull`, and `connectorPush` are the lookup/invoke helpers. A connector
+  may also register output `formats` so `convert(tokens, { format })` works.
+- **`serve` connector endpoints**: `GET /connectors` lists registered connectors;
+  `POST /connectors/<name>/pull` pulls the external tree into the mesh;
+  `POST /connectors/<name>/push` pushes the current mesh tree out. Both mutating
+  routes already pass the POST write-scope gate when `--auth` is enabled.
+- **Built-in connectors** (`src/connectors/*`): `registerStorybookConnector`,
+  `registerGithubPrConnector`, `registerCmsConnector`, each with pure, network-free
+  `tokensTo*` / `*ToTokens` transforms and `push`/`pull` adapters gated on an
+  injected `fetchImpl` (zero runtime dependencies). They register `storybook`,
+  `github`, and `cms` output formats (usable with `-f`). All experimental.
+
+| Version | What you can now do |
+| ------- | ------------------- |
+| 8.0.0   | Universal Connector Hub: `registerConnector` SDK, `serve` connector endpoints (`/connectors`), Storybook / GitHub-PR / CMS connectors, `storybook`/`github`/`cms` output formats |
+
 ## Stability guarantees (from 1.0.0)
 
 - **CLI flags** will not be removed or renamed except in a major version, and
   only after a deprecation period with a runtime warning.
 - **Library functions** (`convert`, `convertToMap`, `flattenTokens`,
   `normalizeW3C`, `applyMap`, `toCSS`, `toSCSS`, `toBarefoot`, `toCSSModules`,
-  `buildSourceMap`, `resolveReferences`, `validateTokens`, `parseLocated`) and
-  their TypeScript types are part of the supported contract.
+  `buildSourceMap`, `resolveReferences`, `validateTokens`, `parseLocated`,
+  `registerFunction`, `registerFormat`, `registerPlugin`, `registerConnector`,
+  `getConnector`, `listConnectors`) and their TypeScript types are part of the
+  supported contract.
 - **Output formats and variable naming** are stable within a major version.
 - **Node 18+ LTS** is supported (tested on 18, 20, 22).
 

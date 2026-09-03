@@ -23,6 +23,16 @@ import { buildExplorerHTML } from "./docs.js";
 import { addVersionMarkers, getDeprecations, createChangeRequest, approveChangeRequest, rejectChangeRequest } from "./governance.js";
 import { getImpactGraph, generateCodemod, applyCodemod, generateCSSCodemod } from "./migrate.js";
 import { buildOrgManifest, resolveOrgTree, lintOrg, mergeRegistries as mergeOrgRegistries } from "./federation.js";
+import { registerStorybookConnector } from "./connectors/storybook.js";
+import { registerGithubPrConnector } from "./connectors/github.js";
+import { registerCmsConnector } from "./connectors/cms.js";
+
+// Eagerly register the built-in connectors' output formats so `-f storybook`,
+// `-f github`, and `-f cms` work out of the box. The connectors register a
+// format; their push/pull remain no-op until configured with a transport.
+registerStorybookConnector({});
+registerGithubPrConnector({});
+registerCmsConnector({});
 
 const REPEATABLE = new Set(["import", "i", "glob", "g", "output", "o", "mode"]);
 
@@ -279,6 +289,9 @@ export const KNOWN_FORMATS = [
   "ts",
   "js",
   "figma",
+  "storybook",
+  "github",
+  "cms",
 ];
 
 function parseOutputs(list, defaultFormat) {

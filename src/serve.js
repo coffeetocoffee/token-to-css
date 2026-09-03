@@ -13,6 +13,7 @@ import { deepMerge } from "./merge.js";
 import { buildClientJS } from "./client.js";
 import { buildExplorerHTML } from "./docs.js";
 import { createChangeRequest, approveChangeRequest, rejectChangeRequest, applyChangeRequest } from "./governance.js";
+import { getConnector, listConnectors } from "./connect.js";
 
 function readJSON(p) {
   return JSON.parse(readFileSync(p, "utf8"));
@@ -435,6 +436,75 @@ export function createTokenServer(options = {}) {
         res.end(JSON.stringify({ teams }, null, 2));
         return;
       }
+    }
+
+    // Connector Hub endpoints (v8.0). A connector registered via
+    // `registerConnector` round-trips a token change through the mesh with zero
+    // core changes: `GET /connectors` lists them, `POST /connectors/<name>/pull`
+    // pulls the external tree into the mesh, `POST /connectors/<name>/push`
+    // pushes the current mesh tree out. Both mutating routes already pass the
+    // POST write-scope gate above when auth is enabled.
+    if (req.method === "GET" && path === "/connectors") {
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ connectors: listConnectors() }, null, 2));
+      return;
+    }
+
+    if (req.method === "POST" && path.startsWith("/connectors/")) {
+      const m = /^\/connectors\/([^/]+)\/(pull|push)$/.exec(path);
+      if (!m) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "expected /connectors/<name>/{pull|push}" }));
+        return;
+      }
+      const name = m[1];
+      const op = m[2];
+      const connector = getConnector(name);
+      if (!connector) {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: `connector not found: ${name}` }));
+        return;
+      }
+      if (op === "pull") {
+        connector
+          .pull()
+          .then((tree) => {
+            setTokens(tree);
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: true, connectors: [name] }));
+          })
+          .catch((err) => {
+            res.writeHead(502, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: err.message }));
+          });
+        return;
+      }
+      // push
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        let tree = snapshotTree();
+        if (body) {
+          try {
+            tree = JSON.parse(body);
+          } catch {
+            res.writeHead(400, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: "invalid JSON body" }));
+            return;
+          }
+        }
+        connector
+          .push(tree)
+          .then((result) => {
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: true, connectors: [name], result }));
+          })
+          .catch((err) => {
+            res.writeHead(502, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: err.message }));
+          });
+      });
+      return;
     }
 
     res.writeHead(404, { "content-type": "text/plain" });

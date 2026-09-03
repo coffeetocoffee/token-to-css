@@ -24,6 +24,28 @@ import {
   tokensToFigmaVariables,
   figmaVariablesToTokens,
 } from "./connectors/figma.js";
+import {
+  registerConnector,
+  getConnector,
+  listConnectors,
+  connectorPull,
+  connectorPush,
+} from "./connect.js";
+import {
+  registerStorybookConnector,
+  tokensToStorybookTheme,
+  storybookThemeToTokens,
+} from "./connectors/storybook.js";
+import {
+  registerGithubPrConnector,
+  tokensToGithubFiles,
+  githubFilesToTokens,
+} from "./connectors/github.js";
+import {
+  registerCmsConnector,
+  tokensToCmsEntries,
+  cmsEntriesToTokens,
+} from "./connectors/cms.js";
 import { addVersionMarkers, getDeprecations, createChangeRequest, approveChangeRequest, rejectChangeRequest, applyChangeRequest } from "./governance.js";
 import { getImpactGraph, getTransitiveDependents, generateCodemod, applyCodemod, generateCSSCodemod } from "./migrate.js";
 import { buildOrgManifest, validateManifest, resolveOrgTree, lintOrg } from "./federation.js";
@@ -37,6 +59,29 @@ export {
   tokensToFigmaVariables,
   figmaVariablesToTokens,
 } from "./connectors/figma.js";
+export {
+  registerConnector,
+  getConnector,
+  listConnectors,
+  connectorPull,
+  connectorPush,
+  toTransportTree,
+} from "./connect.js";
+export {
+  registerStorybookConnector,
+  tokensToStorybookTheme,
+  storybookThemeToTokens,
+} from "./connectors/storybook.js";
+export {
+  registerGithubPrConnector,
+  tokensToGithubFiles,
+  githubFilesToTokens,
+} from "./connectors/github.js";
+export {
+  registerCmsConnector,
+  tokensToCmsEntries,
+  cmsEntriesToTokens,
+} from "./connectors/cms.js";
 export { resolveReferences, registerFunction } from "./references.js";
 export { validateTokens, TokenValidationError } from "./schema.js";
 export { lintTokens, checkContract } from "./lint.js";

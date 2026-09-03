@@ -18,7 +18,10 @@ export type Format =
   | "provenance"
   | "ts"
   | "js"
-  | "figma";
+  | "figma"
+  | "storybook"
+  | "github"
+  | "cms";
 
 export interface ConvertOptions {
   format?: Format;
@@ -218,6 +221,66 @@ export function registerFigmaConnector(options?: {
 };
 export function tokensToFigmaVariables(tokens: Tokens, options?: { collection?: string; mode?: string }): unknown;
 export function figmaVariablesToTokens(doc: unknown): Tokens;
+
+// --- v8.0: Universal Connector Hub ---
+
+export interface Connector {
+  name: string;
+  pull(ctx?: unknown): Promise<Tokens>;
+  push(tree: Tokens, ctx?: unknown): Promise<unknown>;
+  formats?: Record<string, (flat: Record<string, string>, opts: any) => string>;
+}
+
+export function registerConnector(connector: Connector): Connector;
+export function getConnector(name: string): Connector | undefined;
+export function listConnectors(): string[];
+export function connectorPull(name: string, ctx?: unknown): Promise<Tokens>;
+export function connectorPush(name: string, tree: Tokens, ctx?: unknown): Promise<unknown>;
+export function toTransportTree(tokens: Tokens): Tokens;
+
+export function registerStorybookConnector(options?: {
+  fetchImpl?: (url: string, init?: unknown) => Promise<unknown>;
+  url?: string;
+  token?: string;
+}): {
+  pull(): Promise<Tokens>;
+  push(tree: Tokens): Promise<unknown>;
+  tokensToStorybookTheme(tree: Tokens): unknown;
+  storybookThemeToTokens(doc: unknown): Tokens;
+};
+export function tokensToStorybookTheme(tokens: Tokens): unknown;
+export function storybookThemeToTokens(doc: unknown): Tokens;
+
+export function registerGithubPrConnector(options?: {
+  fetchImpl?: (url: string, init?: unknown) => Promise<unknown>;
+  token?: string;
+  owner?: string;
+  repo?: string;
+  base?: string;
+  path?: string;
+  branchPrefix?: string;
+}): {
+  pull(): Promise<Tokens>;
+  push(tree: Tokens): Promise<unknown>;
+  tokensToGithubFiles(tree: Tokens, options?: { path?: string }): Record<string, string>;
+  githubFilesToTokens(files: Record<string, string>, options?: { path?: string }): Tokens;
+};
+export function tokensToGithubFiles(tokens: Tokens, options?: { path?: string }): Record<string, string>;
+export function githubFilesToTokens(files: Record<string, string>, options?: { path?: string }): Tokens;
+
+export function registerCmsConnector(options?: {
+  fetchImpl?: (url: string, init?: unknown) => Promise<unknown>;
+  url?: string;
+  token?: string;
+  type?: string;
+}): {
+  pull(): Promise<Tokens>;
+  push(tree: Tokens): Promise<unknown>;
+  tokensToCmsEntries(tree: Tokens): Array<{ id: string; fields: { value: unknown; type: string; path: string } }>;
+  cmsEntriesToTokens(entries: Array<{ id?: string; fields?: { value: unknown; type?: string; path?: string } }>): Tokens;
+};
+export function tokensToCmsEntries(tokens: Tokens): Array<{ id: string; fields: { value: unknown; type: string; path: string } }>;
+export function cmsEntriesToTokens(entries: Array<{ id?: string; fields?: { value: unknown; type?: string; path?: string } }>): Tokens;
 
 /**
  * Experimental: the `sync` surface (reverse-merge + drift) may change in a

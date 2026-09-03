@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![GitHub Release](https://img.shields.io/github/v/release/coffeetocoffee/token-to-css)](https://github.com/coffeetocoffee/token-to-css/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v7.0.0](https://img.shields.io/badge/phase-7.0.0%20%E2%80%94%20major-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v8.0.0](https://img.shields.io/badge/phase-8.0.0%20%E2%80%94%20major-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 ## Install
@@ -281,6 +281,52 @@ renders a Wikipedia-style page: each token with its resolved value, a swatch, an
 the reverse dependency graph ("used by") so you can see blast radius before
 editing. `lint` also flags `empty-group`s (groups with no token leaves).
 
+## Universal Connector Hub (v8.0)
+
+v8 turns `token-to-css` into a **two-way hub** between your tokens and the rest of
+your stack. The `registerConnector` SDK is the single extension point: any external
+system (design tools, Storybook, GitHub, a CMS) can pull the current token tree in
+and push changes back out, and `serve` exposes every registered connector over HTTP
+so a token change round-trips end-to-end through the mesh with **zero core changes**.
+
+### The connector contract
+
+```js
+import { registerConnector } from "token-to-css";
+
+registerConnector({
+  name: "my-tool",
+  pull: async () => ({ color: { primary: "#3b82f6" } }), // external -> tokens
+  push: async (tree) => { /* tokens -> external */ },     // tokens -> external
+  formats: { mytool: (flat, opts) => JSON.stringify(tree) }, // optional -f mytool
+});
+```
+
+`registerConnector` stores the connector (case-insensitive name) and registers any
+`formats` so `convert(tokens, { format })` works. `getConnector(name)` /
+`listConnectors()` look them up. With `serve`, `GET /connectors` lists them and
+`POST /connectors/<name>/{pull|push}` round-trips a change through the mesh.
+
+### Built-in connectors
+
+| Connector | `register*` | Pulls / Pushes |
+| --------- | ----------- | -------------- |
+| Storybook | `registerStorybookConnector({ url, token? })` | a Storybook theme (`tokens` + mapped `theme` keys) |
+| GitHub PR | `registerGithubPrConnector({ token, owner, repo, base?, path? })` | opens a PR with the updated token file |
+| CMS       | `registerCmsConnector({ url, token?, type? })` | token entries (Contentful/Sanity-style) |
+
+Each ships a pure, transport-agnostic pair (`tokensTo* / *ToTokens`) that round-trips
+without a network, plus `push`/`pull` adapters gated on an injected `fetchImpl`
+(zero runtime dependencies). They also register `storybook`, `github`, and `cms`
+output formats usable with `-f`. All experimental.
+
+```js
+import { registerStorybookConnector } from "token-to-css/connectors/storybook.js";
+const sb = registerStorybookConnector({ url: "https://storybook.example/tokens" });
+await sb.push(tokens);              // tokens -> Storybook
+const back = await sb.pull();       // Storybook -> tokens
+```
+
 ## Governance & Federation (v7.0)
 
 v7 makes the design system **governable and composable across teams**.
@@ -367,7 +413,8 @@ token-to-css lint tokens.json
 - **Library API**: `convert`, `convertToMap`, `flattenTokens`, `normalizeW3C`,
   `applyMap`, `toCSS` / `toSCSS` / `toBarefoot` / `toCSSModules`,
   `buildSourceMap`, `resolveReferences`, `registerFunction`, `registerFormat`,
-  `registerPlugin`, `validateTokens`, `parseLocated`, `lintTokens`,
+  `registerPlugin`, `registerConnector`, `getConnector`, `listConnectors`,
+  `validateTokens`, `parseLocated`, `lintTokens`,
   `checkContract`, `buildKit` / `buildKitCSS` / `buildThemeJS` / `buildBindings` /
   `buildPreviewHTML` / `splitThemes`, `buildDocsSite`, `buildExplorerHTML`,
   `reverse`, `reverseStyleDictionary`, and the TypeScript types are part of the
@@ -392,6 +439,9 @@ optional `[format]:` prefix for per-file formats.
 | `barefoot`    | barefoot-css `--bf-*` variables                     |
 | `css-modules` | a CSS Modules `:export { ... }` block               |
 | `json`        | the fully resolved token tree as JSON               |
+| `storybook`   | a Storybook theme doc (`tokens` + mapped `theme`)    |
+| `github`      | a GitHub PR file map (`{ "tokens.json": ... }`)      |
+| `cms`         | a CMS entries array (Contentful/Sanity-style)        |
 
 ```bash
 token-to-css tokens.json -o css:theme.css -o scss:theme.scss -o json:tokens.resolved.json

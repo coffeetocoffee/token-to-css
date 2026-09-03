@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.0] - 2026-09-03
+
+### Added — Universal Connector Hub
+
+- **Connector SDK** (`src/connect.js`): `registerConnector({ name, pull, push, formats? })`
+  registers an external-system adapter; `getConnector(name)`, `listConnectors()`,
+  `connectorPull`, and `connectorPush` look up and invoke it. A connector may also
+  register output `formats` consumed by `convert(tokens, { format })`.
+- **`serve` connector endpoints**: `GET /connectors` lists registered connectors;
+  `POST /connectors/<name>/pull` pulls the external tree into the mesh;
+  `POST /connectors/<name>/push` pushes the current mesh tree out. Mutating routes
+  pass the POST write-scope gate when `--auth` is set. A connector registered via
+  `registerConnector` round-trips a token change end-to-end through `serve` with
+  zero core changes.
+- **Storybook connector** (`src/connectors/storybook.js`): `registerStorybookConnector`,
+  `tokensToStorybookTheme` / `storybookThemeToTokens` (pure, network-free round-trip),
+  and `push`/`pull` adapters against a Storybook adapter endpoint. Registers the
+  `storybook` output format.
+- **GitHub PR connector** (`src/connectors/github.js`): `registerGithubPrConnector`,
+  `tokensToGithubFiles` / `githubFilesToTokens`, and `push`/`pull` that open a PR with
+  the updated token file. Registers the `github` output format.
+- **CMS connector** (`src/connectors/cms.js`): `registerCmsConnector`,
+  `tokensToCmsEntries` / `cmsEntriesToTokens` (Contentful/Sanity-style entries), and
+  `push`/`pull` against a CMS REST endpoint. Registers the `cms` output format.
+- CLI `-f` accepts `storybook`, `github`, and `cms`; the three built-in connectors
+  self-register their output formats on CLI start.
+
+### Why major
+
+Adds the `registerConnector` SDK contract and three connectors; the SDK shape is part
+of the public surface and may require a major to change. Connectors are experimental.
+
 ## [7.0.0] - 2026-09-03
 
 ### Added — Design System Governance & Federation
@@ -390,7 +422,8 @@ connectors graduate it.)
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v7.0.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v8.0.0...HEAD
+[8.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v7.0.0...v8.0.0
 [7.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v6.0.0...v7.0.0
 [6.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v5.0.0...v6.0.0
 [5.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v4.0.1...v5.0.0
