@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![GitHub Release](https://img.shields.io/github/v/release/coffeetocoffee/token-to-css)](https://github.com/coffeetocoffee/token-to-css/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v6.0.0](https://img.shields.io/badge/phase-6.0.0%20%E2%80%94%20major-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v7.0.0](https://img.shields.io/badge/phase-7.0.0%20%E2%80%94%20major-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 ## Install
@@ -280,6 +280,82 @@ source file is never mutated — stakeholders can flip themes but not break sour
 renders a Wikipedia-style page: each token with its resolved value, a swatch, and
 the reverse dependency graph ("used by") so you can see blast radius before
 editing. `lint` also flags `empty-group`s (groups with no token leaves).
+
+## Governance & Federation (v7.0)
+
+v7 makes the design system **governable and composable across teams**.
+
+### Token Governance
+
+Mark tokens as deprecated with `$version`, `deprecated`, and `replacedBy`:
+
+```json
+{
+  "color": {
+    "primary": { "$value": "#3b82f6", "$type": "color", "$version": "1.0.0" },
+    "old": { "$value": "#000", "$type": "color", "deprecated": true, "replacedBy": "color.primary" }
+  }
+}
+```
+
+**Change-request/approval flow** for `serve`:
+```bash
+token-to-css serve tokens.json --approve  # require approval for POST /tokens
+```
+
+```js
+// POST /tokens creates a change-request
+// POST /change-requests/:id/approve applies it
+// POST /change-requests/:id/reject rejects it
+```
+
+### Migration Codemods
+
+Generate codemods for token renames:
+```bash
+token-to-css migrate tokens.json --from color.primary --to color.brand.primary --codemod ./codemods
+token-to-css migrate tokens.json --deprecated --codemod ./codemods
+token-to-css migrate tokens.json --from color.primary --to color.brand.primary --dry-run
+```
+
+### Federation & Org Manifest
+
+Compose multi-team token trees via an org manifest:
+
+```json
+{
+  "name": "acme-design-system",
+  "teams": {
+    "core": { "path": "./packages/core/tokens.json", "priority": 0 },
+    "brand": { "path": "./packages/brand/tokens.json", "priority": 1, "overrides": ["core"] },
+    "product": { "path": "./packages/product/tokens.json", "priority": 2 }
+  }
+}
+```
+
+```bash
+token-to-css federate org.manifest.json -o merged.css
+token-to-css federate org.manifest.json --lint
+token-to-css federate org.manifest.json --team core
+```
+
+### Team Namespaces
+
+Serve tokens per-team with scoped access:
+```bash
+# GET /teams/:team/tokens — team-scoped token tree
+# POST /teams/:team/tokens — write to team namespace
+# GET /teams/:team/events — team-scoped SSE stream
+# GET /teams — list all teams
+```
+
+### Lint: deprecated-in-use
+
+The lint rule warns when a non-deprecated token references a deprecated token:
+```bash
+token-to-css lint tokens.json
+# warning: [deprecated-in-use] token "color.button.bg" references deprecated token "color.old"
+```
 
 ## Stability & SemVer
 

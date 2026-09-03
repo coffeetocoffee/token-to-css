@@ -16,7 +16,7 @@ import {
 } from "./kit.js";
 import { buildDocsSite, buildExplorerHTML, buildProvenance } from "./docs.js";
 import { reverse, reverseStyleDictionary } from "./reverse.js";
-import { buildNameRegistry, registryFromJSON, setByPath, getByPath } from "./registry.js";
+import { buildNameRegistry, registryFromJSON, setByPath, getByPath, mergeRegistries } from "./registry.js";
 import { createTokenServer, resolveTree } from "./serve.js";
 import { buildClientJS } from "./client.js";
 import {
@@ -24,8 +24,12 @@ import {
   tokensToFigmaVariables,
   figmaVariablesToTokens,
 } from "./connectors/figma.js";
+import { addVersionMarkers, getDeprecations, createChangeRequest, approveChangeRequest, rejectChangeRequest, applyChangeRequest } from "./governance.js";
+import { getImpactGraph, getTransitiveDependents, generateCodemod, applyCodemod, generateCSSCodemod } from "./migrate.js";
+import { buildOrgManifest, validateManifest, resolveOrgTree, lintOrg } from "./federation.js";
+import { createNamespacedAuth, createFlatNamespacedAuth, createNamespacedMiddleware } from "./namespaces.js";
 export { parseLocated } from "./locate.js";
-export { buildNameRegistry, registryFromJSON, setByPath, getByPath } from "./registry.js";
+export { buildNameRegistry, registryFromJSON, setByPath, getByPath, mergeRegistries } from "./registry.js";
 export { createTokenServer, resolveTree } from "./serve.js";
 export { buildClientJS } from "./client.js";
 export {
@@ -48,6 +52,10 @@ export {
 export { buildDocsSite, buildExplorerHTML, buildProvenance } from "./docs.js";
 export { reverse, reverseStyleDictionary } from "./reverse.js";
 export { applyReversedIntoSource, computeDrift, canSetPath } from "./sync.js";
+export { addVersionMarkers, getDeprecations, createChangeRequest, approveChangeRequest, rejectChangeRequest, applyChangeRequest } from "./governance.js";
+export { getImpactGraph, getTransitiveDependents, generateCodemod, applyCodemod, generateCSSCodemod } from "./migrate.js";
+export { buildOrgManifest, validateManifest, resolveOrgTree, lintOrg } from "./federation.js";
+export { createNamespacedAuth, createFlatNamespacedAuth, createNamespacedMiddleware } from "./namespaces.js";
 
 const registeredFormats = {};
 

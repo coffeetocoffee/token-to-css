@@ -234,3 +234,90 @@ export function computeDrift(source: Tokens, reversed: Tokens): Record<
   { added: Record<string, string>; changed: Record<string, { from: string; to: string }> }
 >;
 export function canSetPath(node: Tokens, flatName: string): boolean;
+
+// --- v7.0: Governance, Migration & Federation ---
+
+export interface DeprecationInfo {
+  path: string;
+  replacedBy: string | null;
+  value: unknown;
+}
+
+export interface ChangeRequest {
+  id: string;
+  status: "pending" | "approved" | "rejected";
+  author: string;
+  reason: string;
+  created: string;
+  current: Tokens;
+  proposed: Tokens;
+  approved?: string;
+  approver?: string;
+  rejected?: string;
+  rejectedBy?: string;
+  rejectionReason?: string;
+}
+
+export function addVersionMarkers(tokens: Tokens, version: string): Tokens;
+export function getDeprecations(tokens: Tokens): DeprecationInfo[];
+export function createChangeRequest(current: Tokens, proposed: Tokens, options?: { author?: string; reason?: string }): ChangeRequest;
+export function approveChangeRequest(cr: ChangeRequest, options?: { approver?: string }): ChangeRequest;
+export function rejectChangeRequest(cr: ChangeRequest, reason?: string, options?: { rejectedBy?: string }): ChangeRequest;
+export function applyChangeRequest(source: Tokens, cr: ChangeRequest): { tree: Tokens; cr: ChangeRequest };
+
+export interface ImpactGraph {
+  [tokenPath: string]: string[];
+}
+
+export interface CodemodOperation {
+  type: "rename" | "update-ref";
+  from?: string;
+  to?: string;
+  path?: string;
+  oldRef?: string;
+  newRef?: string;
+}
+
+export interface Codemod {
+  version: string;
+  operations: CodemodOperation[];
+  impact: { direct: number; transitive: number };
+}
+
+export function getImpactGraph(tokens: Tokens): ImpactGraph;
+export function getTransitiveDependents(tokens: Tokens, tokenPath: string): string[];
+export function generateCodemod(tokens: Tokens, options: { from: string; to: string }): Codemod;
+export function applyCodemod(tokens: Tokens, codemod: Codemod): { tree: Tokens; changes: Array<{ type: string; from?: string; to?: string; path?: string }> };
+export function generateCSSCodemod(css: string, registry: NameRegistry | null, options: { from: string; to: string }): { version: string; type: string; operations: Array<{ type: string; find: string; replace: string }> };
+
+export interface OrgManifestTeam {
+  path: string;
+  priority: number;
+  overrides: string[];
+}
+
+export interface OrgManifest {
+  name: string;
+  version: string;
+  teams: Record<string, OrgManifestTeam>;
+  overrides: Record<string, { extends: string; strategy?: string }>;
+}
+
+export function buildOrgManifest(manifestPath: string): OrgManifest;
+export function validateManifest(manifest: object, basePath?: string): OrgManifest;
+export function resolveOrgTree(manifest: OrgManifest): { merged: Tokens; teamTrees: Record<string, Tokens> };
+export function lintOrg(manifest: OrgManifest, contract?: object): Record<string, { path: string; lint?: LintResult; contract?: true; error?: string }>;
+
+export interface MergedRegistry {
+  canonicalOf(path: string[]): string | null;
+  pathOf(canonical: string): { team: string; path: string[] } | null;
+  has(canonical: string): boolean;
+  toJSON(): { version: number; names: { team: string; path: string; canonical: string }[] };
+}
+
+export function mergeRegistries(registries: Record<string, NameRegistry>): MergedRegistry;
+
+export type NamespacedAuthResolver = (token: string, team?: string) => "read" | "write" | null;
+export function createNamespacedAuth(authConfig: { tokens: Record<string, { scope: string; teams: string[] }> }): NamespacedAuthResolver;
+export function createFlatNamespacedAuth(flatMap: Record<string, string>): NamespacedAuthResolver;
+export function createNamespacedMiddleware(authConfig: { tokens: Record<string, { scope: string; teams: string[] }> }, allowedTeams?: string[]): NamespacedAuthResolver;

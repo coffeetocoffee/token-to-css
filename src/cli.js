@@ -20,6 +20,9 @@ import { deepMerge } from "./merge.js";
 import { expandGlob, globBaseDir } from "./glob.js";
 import { parseLocated } from "./locate.js";
 import { buildExplorerHTML } from "./docs.js";
+import { addVersionMarkers, getDeprecations, createChangeRequest, approveChangeRequest, rejectChangeRequest } from "./governance.js";
+import { getImpactGraph, generateCodemod, applyCodemod, generateCSSCodemod } from "./migrate.js";
+import { buildOrgManifest, resolveOrgTree, lintOrg, mergeRegistries as mergeOrgRegistries } from "./federation.js";
 
 const REPEATABLE = new Set(["import", "i", "glob", "g", "output", "o", "mode"]);
 
@@ -65,6 +68,10 @@ Usage:
   token-to-css history <snap-a.json> <snap-b.json> [snap-c.json ...]
   token-to-css sync <input.json> [options]
   token-to-css serve <input.json> [--port 4173] [--playground] [--registry]
+  token-to-css migrate <input.json> --from <path> --to <path> [--codemod <dir>] [--dry-run]
+  token-to-css migrate <input.json> --deprecated [--codemod <dir>]
+  token-to-css federate <org.manifest.json> [-o <output>] [--lint] [--team <name>]
+  token-to-css govern <input.json> [--version <semver>] [--deprecate <path> --replaced-by <path>]
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); prefix format, e.g. scss:out.scss
@@ -93,6 +100,17 @@ Options:
   --serve              Serve generated outputs on a local HTTP server (with -w)
   --playground         With serve: host the live kit preview + "propose change"
   --port <n>           Port for --serve (default: 4173)
+  --approve            With serve: require approval for POST /tokens (change-request mode)
+  --from <path>        With migrate: source token path to rename
+  --to <path>          With migrate: target token path for rename
+  --codemod <dir>      With migrate: write codemod JSON to directory
+  --dry-run            With migrate: show changes without writing
+  --deprecated         With migrate: generate codemods for all deprecated tokens
+  --team <name>        With federate: filter to a specific team
+  --lint               With federate: run lint across all teams
+  --version <semver>   With govern: set version on all tokens
+  --deprecate <path>   With govern: mark a token as deprecated
+  --replaced-by <path> With govern: replacement for deprecated token
   -n, --no-validate     Skip token validation
   -h, --help            Show help
 
@@ -104,6 +122,9 @@ Subcommands:
   history <a> <b>...  Diff a sequence of snapshots across versions
   sync <input>        Watch tokens + artifacts; external edits reverse-sync back
   serve <input>       Run the live Token Server (REST + SSE mesh) for an org
+  migrate <input>     Generate migration codemods for token renames/deprecations
+  federate <manifest> Compose multi-team token trees via an org manifest
+  govern <input>      Manage token versioning and deprecation markers
 `);
 }
 
@@ -570,7 +591,10 @@ export function run(argv = process.argv.slice(2)) {
     args._[0] === "snapshot" ||
     args._[0] === "history" ||
     args._[0] === "sync" ||
-    args._[0] === "serve"
+    args._[0] === "serve" ||
+    args._[0] === "migrate" ||
+    args._[0] === "federate" ||
+    args._[0] === "govern"
       ? args._[0]
       : null;
   const input = sub ? args._[1] : args._[0];
@@ -949,6 +973,7 @@ export function run(argv = process.argv.slice(2)) {
         playground: options.playground,
         registry: options.registry,
         auth: options.auth,
+        approve: options.approve,
         streamUrl: "/events",
       });
       server.listen(options.port, () =>
@@ -956,6 +981,209 @@ export function run(argv = process.argv.slice(2)) {
           `token-to-css serve listening on http://localhost:${options.port}`
         )
       );
+      return 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
+  if (sub === "migrate") {
+    try {
+      if (!input) {
+        console.error("error: migrate requires an input file: token-to-css migrate <input.json>");
+        process.exitCode = 1;
+        return 1;
+      }
+      const { merged } = loadLocated(rebuildPaths());
+      const from = args.from;
+      const to = args.to;
+      const codemodDir = args.codemod;
+      const dryRun = Boolean(args["dry-run"]);
+      const deprecatedOnly = Boolean(args.deprecated);
+
+      if (!from && !deprecatedOnly) {
+        console.error("error: migrate requires --from or --deprecated");
+        process.exitCode = 1;
+        return 1;
+      }
+
+      if (deprecatedOnly) {
+        const deprecations = getDeprecations(merged);
+        if (deprecations.length === 0) {
+          console.log("no deprecated tokens found");
+          return 0;
+        }
+        console.log(`found ${deprecations.length} deprecated token(s):`);
+        for (const d of deprecations) {
+          console.log(`  ${d.path}${d.replacedBy ? ` -> ${d.replacedBy}` : ""}`);
+        }
+        if (codemodDir && !dryRun) {
+          for (const d of deprecations) {
+            if (d.replacedBy) {
+              const codemod = generateCodemod(merged, { from: d.path, to: d.replacedBy });
+              const outPath = joinPath(resolve(process.cwd(), codemodDir), `${d.path.replace(/\./g, "-")}.codemod.json`);
+              mkdirSync(dirname(outPath), { recursive: true });
+              writeFileSync(outPath, `${JSON.stringify(codemod, null, 2)}\n`, "utf8");
+              console.log(`  wrote ${outPath}`);
+            }
+          }
+        }
+        return 0;
+      }
+
+      if (!to) {
+        console.error("error: migrate --from requires --to");
+        process.exitCode = 1;
+        return 1;
+      }
+
+      const codemod = generateCodemod(merged, { from, to });
+      console.log(`impact: ${codemod.impact.direct} direct, ${codemod.impact.transitive} transitive`);
+      console.log(`operations: ${codemod.operations.length}`);
+
+      if (dryRun) {
+        console.log("\noperations:");
+        for (const op of codemod.operations) {
+          if (op.type === "rename") {
+            console.log(`  rename ${op.from} -> ${op.to}`);
+          } else if (op.type === "update-ref") {
+            console.log(`  update ref in ${op.path}`);
+          }
+        }
+        return 0;
+      }
+
+      if (codemodDir) {
+        const outPath = joinPath(resolve(process.cwd(), codemodDir), `${from.replace(/\./g, "-")}-to-${to.replace(/\./g, "-")}.codemod.json`);
+        mkdirSync(dirname(outPath), { recursive: true });
+        writeFileSync(outPath, `${JSON.stringify(codemod, null, 2)}\n`, "utf8");
+        console.log(`wrote ${outPath}`);
+      } else {
+        process.stdout.write(`${JSON.stringify(codemod, null, 2)}\n`);
+      }
+      return 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
+  if (sub === "federate") {
+    try {
+      if (!input) {
+        console.error("error: federate requires a manifest: token-to-css federate <org.manifest.json>");
+        process.exitCode = 1;
+        return 1;
+      }
+      const manifestPath = resolve(process.cwd(), input);
+      const manifest = buildOrgManifest(manifestPath);
+
+      if (args.lint) {
+        const results = lintOrg(manifest);
+        let hasErrors = false;
+        for (const [team, result] of Object.entries(results)) {
+          if (result.error) {
+            console.error(`  ${team}: ${result.error}`);
+            hasErrors = true;
+            continue;
+          }
+          if (result.lint && result.lint.errors > 0) {
+            console.error(`  ${team}: ${result.lint.errors} error(s), ${result.lint.warnings} warning(s)`);
+            hasErrors = true;
+          } else {
+            console.log(`  ${team}: ok`);
+          }
+        }
+        process.exitCode = hasErrors ? 1 : 0;
+        return hasErrors ? 1 : 0;
+      }
+
+      const teamFilter = args.team;
+      const { merged, teamTrees } = resolveOrgTree(manifest);
+
+      if (teamFilter && teamTrees[teamFilter]) {
+        const teamTree = teamTrees[teamFilter];
+        const format = options.format || "css";
+        const css = convert(teamTree, { format, ...options });
+        const outPath = args.output || args.o;
+        if (outPath) {
+          writeFileSync(resolve(process.cwd(), outPath), css, "utf8");
+          console.error(`wrote ${outPath}`);
+        } else {
+          process.stdout.write(css);
+        }
+        return 0;
+      }
+
+      const format = options.format || "css";
+      const css = convert(merged, { format, ...options });
+      const outPath = args.output || args.o;
+      if (outPath) {
+        writeFileSync(resolve(process.cwd(), outPath), css, "utf8");
+        console.error(`wrote ${outPath}`);
+      } else {
+        process.stdout.write(css);
+      }
+      return 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
+  if (sub === "govern") {
+    try {
+      if (!input) {
+        console.error("error: govern requires an input file: token-to-css govern <input.json>");
+        process.exitCode = 1;
+        return 1;
+      }
+      const { merged } = loadLocated(rebuildPaths());
+      let tree = structuredClone(merged);
+
+      if (args.version) {
+        tree = addVersionMarkers(tree, args.version);
+        console.log(`added version "${args.version}" to all tokens`);
+      }
+
+      if (args.deprecate) {
+        const deprecatePath = args.deprecate;
+        const replacedBy = args["replaced-by"] || null;
+        const parts = deprecatePath.split(".");
+        let node = tree;
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (!node[parts[i]]) node[parts[i]] = {};
+          node = node[parts[i]];
+        }
+        const leaf = parts[parts.length - 1];
+        if (node[leaf] && typeof node[leaf] === "object") {
+          if ("$value" in node[leaf]) {
+            node[leaf].deprecated = true;
+            if (replacedBy) node[leaf].replacedBy = replacedBy;
+            console.log(`deprecated ${deprecatePath}${replacedBy ? ` -> ${replacedBy}` : ""}`);
+          } else {
+            console.error(`error: ${deprecatePath} is not a leaf token`);
+            process.exitCode = 1;
+            return 1;
+          }
+        } else {
+          console.error(`error: token not found: ${deprecatePath}`);
+          process.exitCode = 1;
+          return 1;
+        }
+      }
+
+      const outPath = args.output || args.o;
+      if (outPath) {
+        writeFileSync(resolve(process.cwd(), outPath), `${JSON.stringify(tree, null, 2)}\n`, "utf8");
+        console.error(`wrote ${outPath}`);
+      } else {
+        process.stdout.write(`${JSON.stringify(tree, null, 2)}\n`);
+      }
       return 0;
     } catch (err) {
       console.error(`error: ${err.message}`);

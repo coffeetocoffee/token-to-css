@@ -63,6 +63,33 @@ it is backward compatible at the CLI/library level — upgrading is drop-in. Hig
 | ------- | ------------------- |
 | 6.0.0   | `serve --auth` (read/write scopes), OKLCH/Lab color spaces, `provenance` format, `empty-group` lint, `core.js` entry |
 
+## From 6.x to 7.0
+
+v7.0 is a **major** because it introduces a policy/versioning surface, an
+org-manifest format, and the namespace/room model. The existing CLI flags and
+library API from 1.x–6.x are unchanged — upgrading is drop-in for `convert`,
+`lint`, `kit`, `reverse`, `sync`, `serve`, etc.
+
+What is **new** (and therefore its contracts may still evolve within the v7.x line
+before a v8.0):
+
+- **Token governance** (`src/governance.js`): `$version`, `deprecated`, `replacedBy`
+  fields on tokens (backward-compatible, optional). `createChangeRequest` /
+  `approveChangeRequest` / `rejectChangeRequest` / `applyChangeRequest` for
+  change-request/approval flows.
+- **Migration codemods** (`src/migrate.js`): `getImpactGraph`, `generateCodemod`,
+  `applyCodemod`, `generateCSSCodemod`. CLI: `token-to-css migrate`.
+- **Federation** (`src/federation.js`): org manifest (`org.manifest.json`),
+  `resolveOrgTree`, `lintOrg`, `mergeRegistries`. CLI: `token-to-css federate`.
+- **Namespaces** (`src/namespaces.js`): team-scoped auth resolvers. Serve gains
+  `/teams/:team/tokens`, `/teams/:team/events`, `/change-requests` endpoints.
+- **Lint rule**: `deprecated-in-use` warns when non-deprecated tokens reference
+  deprecated tokens.
+
+| Version | What you can now do |
+| ------- | ------------------- |
+| 7.0.0   | Token governance (`$version`/`deprecated`/`replacedBy`), change-request/approval, migration codemods, org manifest, team namespaces, `deprecated-in-use` lint |
+
 ## Stability guarantees (from 1.0.0)
 
 - **CLI flags** will not be removed or renamed except in a major version, and

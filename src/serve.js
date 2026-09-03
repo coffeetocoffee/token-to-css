@@ -12,6 +12,7 @@ import { applyReversedIntoSource } from "./sync.js";
 import { deepMerge } from "./merge.js";
 import { buildClientJS } from "./client.js";
 import { buildExplorerHTML } from "./docs.js";
+import { createChangeRequest, approveChangeRequest, rejectChangeRequest, applyChangeRequest } from "./governance.js";
 
 function readJSON(p) {
   return JSON.parse(readFileSync(p, "utf8"));
@@ -132,12 +133,15 @@ export function createTokenServer(options = {}) {
   const tokensPath = options.tokensPath ? resolvePath(options.tokensPath) : null;
   const auth = options.auth || null;
   const useRegistry = Boolean(options.registry);
+  const approvalMode = Boolean(options.approve);
   let sourceTree = options.tokens ? structuredClone(options.tokens) : null;
   if (tokensPath && sourceTree == null) sourceTree = readJSON(tokensPath);
   let registry = useRegistry ? buildNameRegistry(sourceTree) : null;
   let clientJs = buildClientJS({ streamUrl: options.streamUrl || "/events" });
 
   const clients = new Set();
+  const teamClients = new Map();
+  const changeRequests = [];
   let watcher = null;
 
   function snapshotTree() {
@@ -151,6 +155,15 @@ export function createTokenServer(options = {}) {
         res.write(payload);
       } catch {
         clients.delete(res);
+      }
+    }
+    for (const [team, set] of teamClients) {
+      for (const res of set) {
+        try {
+          res.write(payload);
+        } catch {
+          set.delete(res);
+        }
       }
     }
   }
@@ -229,6 +242,16 @@ export function createTokenServer(options = {}) {
       req.on("end", () => {
         try {
           const incoming = JSON.parse(body);
+
+          if (approvalMode) {
+            const cr = createChangeRequest(sourceTree, incoming, { author: "api" });
+            changeRequests.push(cr);
+            broadcast({ type: "change-request", cr: { id: cr.id, status: cr.status } });
+            res.writeHead(202, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: true, pending: true, cr: { id: cr.id, status: cr.status } }));
+            return;
+          }
+
           if (!tokensPath) {
             const { source, changed } = applyReversedIntoSource(sourceTree, incoming);
             res.writeHead(200, { "content-type": "application/json" });
@@ -287,6 +310,133 @@ export function createTokenServer(options = {}) {
       return;
     }
 
+    // Change-request endpoints (v7.0)
+    if (req.method === "GET" && path === "/change-requests") {
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify(changeRequests, null, 2));
+      return;
+    }
+
+    if (req.method === "POST" && path.startsWith("/change-requests/") && path.endsWith("/approve")) {
+      const crId = path.split("/")[2];
+      const cr = changeRequests.find((c) => c.id === crId);
+      if (!cr) {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "change request not found" }));
+        return;
+      }
+      try {
+        approveChangeRequest(cr);
+        if (tokensPath) {
+          const { tree } = applyChangeRequest(sourceTree, cr);
+          writeFileSync(tokensPath, `${JSON.stringify(tree, null, 2)}\n`, "utf8");
+          sourceTree = tree;
+          pushUpdate();
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, cr }));
+      } catch (err) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+      return;
+    }
+
+    if (req.method === "POST" && path.startsWith("/change-requests/") && path.endsWith("/reject")) {
+      const crId = path.split("/")[2];
+      const cr = changeRequests.find((c) => c.id === crId);
+      if (!cr) {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "change request not found" }));
+        return;
+      }
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const { reason } = body ? JSON.parse(body) : {};
+          rejectChangeRequest(cr, reason);
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: true, cr }));
+        } catch (err) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+      });
+      return;
+    }
+
+    // Team-scoped endpoints (v7.0)
+    if (path.startsWith("/teams/")) {
+      const parts = path.split("/");
+      const team = parts[2];
+      const sub = parts.slice(3).join("/");
+
+      if (req.method === "GET" && (sub === "tokens" || sub === "")) {
+        const tree = snapshotTree();
+        const teamKey = tree.teams ? tree.teams[team] : null;
+        if (!teamKey) {
+          res.writeHead(404, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: `team "${team}" not found` }));
+          return;
+        }
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify(teamKey, null, 2));
+        return;
+      }
+
+      if (req.method === "GET" && sub === "events") {
+        res.writeHead(200, {
+          "content-type": "text/event-stream; charset=utf-8",
+          "cache-control": "no-cache",
+          connection: "keep-alive",
+        });
+        res.write(`data: ${JSON.stringify({ type: "snapshot", team, tree: snapshotTree().teams?.[team] })}\n\n`);
+        if (!teamClients.has(team)) teamClients.set(team, new Set());
+        teamClients.get(team).add(res);
+        req.on("close", () => {
+          const set = teamClients.get(team);
+          if (set) set.delete(res);
+        });
+        return;
+      }
+
+      if (req.method === "POST" && sub === "tokens") {
+        let body = "";
+        req.on("data", (c) => (body += c));
+        req.on("end", () => {
+          try {
+            const incoming = JSON.parse(body);
+            if (!sourceTree.teams) sourceTree.teams = {};
+            if (!sourceTree.teams[team]) sourceTree.teams[team] = {};
+            deepMerge(sourceTree.teams[team], incoming);
+            if (tokensPath) {
+              writeFileSync(tokensPath, `${JSON.stringify(sourceTree, null, 2)}\n`, "utf8");
+            }
+            pushUpdate();
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: true, team }));
+          } catch (err) {
+            res.writeHead(400, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: err.message }));
+          }
+        });
+        return;
+      }
+
+      if (req.method === "GET" && sub === "") {
+        if (!sourceTree.teams) {
+          res.writeHead(404, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "no teams defined" }));
+          return;
+        }
+        const teams = Object.keys(sourceTree.teams);
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ teams }, null, 2));
+        return;
+      }
+    }
+
     res.writeHead(404, { "content-type": "text/plain" });
     res.end("not found");
   });
@@ -302,10 +452,15 @@ export function createTokenServer(options = {}) {
   server.broadcast = broadcast;
   server.setTokens = setTokens;
   server.snapshotTree = snapshotTree;
+  server.changeRequests = changeRequests;
   server.closeAll = () => {
     if (watcher) watcher.close();
     for (const c of clients) c.end();
+    for (const [, set] of teamClients) {
+      for (const c of set) c.end();
+    }
     clients.clear();
+    teamClients.clear();
   };
   return server;
 }

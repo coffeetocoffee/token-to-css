@@ -193,6 +193,7 @@ export function buildProvenance(tokens, options = {}) {
   const allNames = new Set(rows.map((r) => r.name));
   const rawRows = dottedRows(base);
   const usedBy = {};
+  const deprecationMap = {};
   const refRe = /\{([\w.]+)\}/g;
   for (const r of rawRows) {
     let m;
@@ -201,6 +202,25 @@ export function buildProvenance(tokens, options = {}) {
       if (allNames.has(target)) (usedBy[target] = usedBy[target] || []).push(r.name);
     }
   }
+
+  // Collect deprecation info from raw tree
+  function collectDeprecations(node, prefix) {
+    if (!node || typeof node !== "object" || Array.isArray(node)) return;
+    if ("$value" in node) {
+      if (node.deprecated) {
+        deprecationMap[prefix.join(".")] = {
+          replacedBy: node.replacedBy || null,
+          version: node.$version || null,
+        };
+      }
+      return;
+    }
+    for (const [k, v] of Object.entries(node)) {
+      collectDeprecations(v, [...prefix, k]);
+    }
+  }
+  collectDeprecations(base, []);
+
   const title = escHtml(options.title || "Token provenance");
   const sections = rows
     .map(({ name, value }) => {
@@ -210,9 +230,14 @@ export function buildProvenance(tokens, options = {}) {
       const swatch = /^(#|rgba?\(|hsl|oklch|oklab|lab|lch)/i.test(value)
         ? `<span class="sw" style="background:${escHtml(value)}"></span>`
         : "";
-      return `<section class="tok">
+      const dep = deprecationMap[name];
+      const deprecationWarning = dep
+        ? `<p class="deprecated">deprecated${dep.replacedBy ? ` — use <code>${escHtml(dep.replacedBy)}</code> instead` : ""}</p>`
+        : "";
+      return `<section class="tok${dep ? " is-deprecated" : ""}">
   <h3><code>${escHtml(name)}</code></h3>
   <p>Resolved: <code>${escHtml(value)}</code> ${swatch}</p>
+  ${deprecationWarning}
   <p class="used">Used by: ${used}</p>
 </section>`;
     })
@@ -230,6 +255,8 @@ h3{margin:0 0 .5rem}
 code{background:#f4f4f5;padding:.1rem .4rem;border-radius:.25rem}
 .used{color:#52525b}
 .sw{display:inline-block;width:1.25rem;height:1.25rem;border-radius:.3rem;border:1px solid #ccc;vertical-align:middle}
+.deprecated{color:#b91c1c;font-weight:600}
+.is-deprecated{border-color:#fca5a5;background:#fef2f2}
 </style>
 </head>
 <body>

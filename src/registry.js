@@ -116,3 +116,49 @@ export function getByPath(node, path) {
   }
   return cur;
 }
+
+/**
+ * Merge multiple canonical name registries into one.
+ * Each registry's entries are prefixed with a key to avoid cross-registry collisions.
+ */
+export function mergeRegistries(registries) {
+  const allEntries = [];
+  const pathToCanonical = new Map();
+  const canonicalToPath = new Map();
+
+  for (const [key, registry] of Object.entries(registries)) {
+    const json = registry.toJSON();
+    for (const entry of json.names) {
+      const prefixedCanonical = `${key}:${entry.canonical}`;
+      const path = entry.path.split(".");
+      allEntries.push({ path, canonical: prefixedCanonical });
+      pathToCanonical.set(`${key}:${path.join("\u0000")}`, prefixedCanonical);
+      canonicalToPath.set(prefixedCanonical, path);
+    }
+  }
+
+  return {
+    entries: allEntries,
+    canonicalOf(path) {
+      for (const [key] of Object.entries(registries)) {
+        const result = pathToCanonical.get(`${key}:${path.join("\u0000")}`);
+        if (result) return result;
+      }
+      return path.map((s) => s.replace(/([a-z0-9])([A-Z])/g, "$1-$2").replace(/[\s_]+/g, "-").toLowerCase()).join("-");
+    },
+    pathOf(canonical) {
+      return canonicalToPath.get(canonical) || null;
+    },
+    has(canonical) {
+      return canonicalToPath.has(canonical);
+    },
+    toJSON() {
+      return {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        name: "token-to-css merged registry",
+        version: 1,
+        names: allEntries.map((e) => ({ path: e.path.join("."), canonical: e.canonical })),
+      };
+    },
+  };
+}

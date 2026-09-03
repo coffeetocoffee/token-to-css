@@ -246,6 +246,7 @@ export function lintTokens(tokens, options = {}) {
   }
 
   lintEmptyGroups(raw, issues, options);
+  lintDeprecatedInUse(raw, issues, options);
 
   const errors = issues.filter((i) => i.severity === "error").length;
   const warnings = issues.filter((i) => i.severity !== "error").length;
@@ -283,6 +284,66 @@ export function lintEmptyGroups(tokens, issues, options = {}) {
       severity: "warning",
     });
   }
+}
+
+/**
+ * Lint rule: detect tokens that reference deprecated tokens.
+ * Warns when a non-deprecated token references a deprecated one.
+ */
+export function lintDeprecatedInUse(tokens, issues, options = {}) {
+  if (options.noDeprecated) return;
+
+  const deprecatedMap = {};
+  const refMap = {};
+
+  function walk(node, path) {
+    if (!node || typeof node !== "object" || Array.isArray(node)) return;
+    if ("$value" in node) {
+      const dotted = path.join(".");
+      if (node.deprecated) {
+        deprecatedMap[dotted] = node.replacedBy || null;
+      }
+      if (typeof node.$value === "string") {
+        const re = /\{([^}]+)\}/g;
+        let m;
+        while ((m = re.exec(node.$value))) {
+          if (!refMap[m[1]]) refMap[m[1]] = [];
+          refMap[m[1]].push(dotted);
+        }
+      }
+      return;
+    }
+    for (const [k, v] of Object.entries(node)) {
+      walk(v, [...path, k]);
+    }
+  }
+
+  walk(tokens, []);
+
+  for (const [deprecated, replacedBy] of Object.entries(deprecatedMap)) {
+    const users = refMap[deprecated] || [];
+    for (const user of users) {
+      if (user === deprecated) continue;
+      const userNode = getByPathDotted(tokens, user);
+      if (userNode && userNode.deprecated) continue;
+      issues.push({
+        rule: "deprecated-in-use",
+        message: `token "${user}" references deprecated token "${deprecated}"${replacedBy ? ` (use ${replacedBy} instead)` : ""}`,
+        path: user,
+        severity: "warning",
+      });
+    }
+  }
+}
+
+function getByPathDotted(node, dotted) {
+  const parts = dotted.split(".");
+  let cur = node;
+  for (const p of parts) {
+    if (cur == null) return undefined;
+    cur = cur[p];
+  }
+  return cur;
 }
 
 /**

@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.0.0] - 2026-09-03
+
+### Added — Design System Governance & Federation
+
+- **Token versioning & governance** (`src/governance.js`):
+  - `addVersionMarkers(tokens, version)`: stamp `$version` on every leaf token.
+  - `getDeprecations(tokens)`: collect all tokens with `deprecated: true`.
+  - `createChangeRequest(current, proposed, { author, reason })`: create a change-request object.
+  - `approveChangeRequest(cr)` / `rejectChangeRequest(cr, reason)`: CR lifecycle.
+  - `applyChangeRequest(source, cr)`: apply approved CR to source tree.
+  - New token schema fields (backward-compatible): `$version`, `deprecated`, `replacedBy`.
+
+- **Migration codemods** (`src/migrate.js`):
+  - `getImpactGraph(tokens)`: build reverse-dependency graph from token tree.
+  - `getTransitiveDependents(tokens, tokenPath)`: get all transitive dependents.
+  - `generateCodemod(tokens, { from, to })`: produce codemod for token rename.
+  - `applyCodemod(tokens, codemod)`: apply codemod to token tree.
+  - `generateCSSCodemod(css, registry, { from, to })`: CSS find/replace pairs.
+
+- **Federation & org manifest** (`src/federation.js`):
+  - `buildOrgManifest(manifestPath)`: parse and validate org manifest.
+  - `validateManifest(manifest, basePath)`: validate manifest object.
+  - `resolveOrgTree(manifest)`: compose multi-team trees into merged tree.
+  - `lintOrg(manifest, contract)`: run lint across all teams.
+  - `mergeRegistries(registries)`: merge canonical name registries with team prefixes.
+
+- **Per-team namespaces** (`src/namespaces.js`):
+  - `createNamespacedAuth(authConfig)`: team-scoped auth resolver.
+  - `createFlatNamespacedAuth(flatMap)`: flat map to namespaced resolver.
+  - `createNamespacedMiddleware(authConfig, allowedTeams)`: middleware for serve.
+
+- **New CLI subcommands**:
+  - `token-to-css migrate <input.json> --from <path> --to <path> [--codemod <dir>] [--dry-run]`
+  - `token-to-css migrate <input.json> --deprecated [--codemod <dir>]`
+  - `token-to-css federate <org.manifest.json> [-o <output>] [--lint] [--team <name>]`
+  - `token-to-css govern <input.json> [--version <semver>] [--deprecate <path> --replaced-by <path>]`
+
+- **New serve endpoints**:
+  - `GET /change-requests`: list pending change requests.
+  - `POST /change-requests/:id/approve`: approve a CR.
+  - `POST /change-requests/:id/reject`: reject a CR.
+  - `GET /teams/:team/tokens`: team-scoped token tree.
+  - `POST /teams/:team/tokens`: write to team namespace.
+  - `GET /teams/:team/events`: team-scoped SSE stream.
+  - `GET /teams`: list all teams.
+  - `--approve` flag: enable approval mode for `POST /tokens`.
+
+- **Lint rules**:
+  - `deprecated-in-use`: warn when non-deprecated token references deprecated token.
+
+- **Provenance view**: shows deprecation warnings and migration paths.
+
+### Why major
+
+Introduces a policy/versioning surface, an org-manifest format, and the
+namespace/room model. The codemod CLI and manifest schema are new public
+contracts that may evolve within the 7.x line.
+
 ## [6.0.0] - 2026-09-03
 
 ### Added — Post-server hardening
@@ -332,7 +390,8 @@ connectors graduate it.)
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v6.0.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v7.0.0...HEAD
+[7.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v6.0.0...v7.0.0
 [6.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v5.0.0...v6.0.0
 [5.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v4.0.1...v5.0.0
 [4.0.1]: https://github.com/coffeetocoffee/token-to-css/compare/v4.0.0...v4.0.1
