@@ -404,8 +404,21 @@ function evaluate(str, ctx) {
 
   if (!looksLikeExpr(resolved)) return resolved;
 
+  let ast;
   try {
-    const v = evalNode(parse(tokenize(resolved)), ctx);
+    ast = parse(tokenize(resolved));
+  } catch {
+    // Not actually an expression — e.g. a multi-part CSS value like
+    // "0 4px 6px rgba(0,0,0,0.1)" (the "(" trips the expression heuristic,
+    // but "0" parses as a complete expression with trailing tokens).
+    // Keep the author's literal value verbatim instead of failing the build.
+    // parse() only throws structural errors here; unknown/circular
+    // references and strict mismatches surface later and still throw.
+    return resolved;
+  }
+
+  try {
+    const v = evalNode(ast, ctx);
     const result = formatValue(v);
     if (!ctx.reduce)
       return /^calc\(/.test(result) ? result : `calc(${resolved})`;

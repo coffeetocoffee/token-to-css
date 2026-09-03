@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-09-03
+
+### Fixed
+- **E2E smoke / parser regression**: multi-part CSS values containing a
+  function call (e.g. `"0 4px 6px rgba(0,0,0,0.1)"` in
+  `examples/tokens.json`) no longer fail the build with
+  `unexpected trailing tokens`. The v2.0 expression parser tripped on the
+  `(`, parsed the leading `0` as a complete expression, and threw. Values
+  that are not structurally parseable now fall back to verbatim output,
+  restoring the pre-2.0 behavior. Unknown/circular references and
+  `--strict` unit mismatches still fail hard.
+
 ## [2.5.0] - 2026-09-03
 
 ### Added
@@ -171,7 +183,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v2.5.1...HEAD
+[2.5.1]: https://github.com/coffeetocoffee/token-to-css/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v2.0.0...v2.5.0
 [2.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v1.5.0...v2.0.0
 [1.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v1.0.0...v1.5.0

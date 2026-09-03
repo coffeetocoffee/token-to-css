@@ -441,6 +441,22 @@ test("parser passes unknown CSS functions through", () => {
   );
 });
 
+test("multi-part CSS values with functions pass through verbatim", () => {
+  // Regression: the "(" tripped the expression heuristic, then "0" parsed
+  // as a complete expression and the build died with "unexpected trailing
+  // tokens" (broke the E2E smoke on examples/tokens.json).
+  assert.equal(
+    resolveReferences({ shadow: { md: "0 4px 6px rgba(0,0,0,0.1)" } }).shadow.md,
+    "0 4px 6px rgba(0,0,0,0.1)"
+  );
+});
+
+test("unparseable values fall back to verbatim without hiding ref errors", () => {
+  assert.equal(resolveReferences({ x: "calc(1rem" }).x, "calc(1rem");
+  assert.throws(() => resolveReferences({ a: "{missing}" }), /unknown token reference/);
+  assert.throws(() => resolveReferences({ a: "{b}", b: "{a}" }), /circular token reference/);
+});
+
 test("parser evaluates rgb and hsl color functions", () => {
   assert.equal(resolveReferences({ c: "rgb(59, 130, 246)" }).c, "#3b82f6");
   assert.equal(resolveReferences({ c: "hsl(0, 100%, 50%)" }).c, "#ff0000");
