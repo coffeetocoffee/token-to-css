@@ -11,6 +11,9 @@ import {
   buildKit,
   reverse,
   resolveReferences,
+  createTokenServer,
+  buildNameRegistry,
+  registryFromJSON,
 } from "./index.js";
 import { applyReversedIntoSource, computeDrift } from "./sync.js";
 import { deepMerge } from "./merge.js";
@@ -57,14 +60,15 @@ Usage:
   token-to-css <input.json> [options]
   token-to-css kit <input.json> [--out-dir dist] [options]
   token-to-css lint <input.json> [--contract schema.json] [--json]
-  token-to-css reverse <file.css> [-o tokens.json]
+  token-to-css reverse <file.css> [-o tokens.json] [--registry names.json]
   token-to-css snapshot <input.json> [-o snap.json]
   token-to-css history <snap-a.json> <snap-b.json> [snap-c.json ...]
   token-to-css sync <input.json> [options]
+  token-to-css serve <input.json> [--port 4173] [--playground] [--registry]
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); prefix format, e.g. scss:out.scss
-  -f, --format <name>   css | scss | barefoot | css-modules | json | tailwind | style-dictionary | schema | report | docs | ts | js  (default: css)
+  -f, --format <name>   css | scss | barefoot | css-modules | json | tailwind | style-dictionary | schema | report | docs | ts | js | figma  (default: css)
   -s, --selector <sel>  CSS selector for variables (default: :root)
   -t, --theme <name>    barefoot only: wrap in [data-bf-theme="name"]
   -m, --map <file>      barefoot only: JSON file mapping token names to vars
@@ -77,6 +81,8 @@ Options:
   -z, --no-reduce       Keep arithmetic as calc() instead of collapsing it
   -C, --source-comments Emit a /* token.path */ comment above each variable
   -M, --source-map      Write a <file>.map source map alongside each output file
+  --registry            Emit/consume a canonical name registry (tokens.names.json) so
+                       round-trips are lossless for kebab-colliding token names
   --strict              Fail on arithmetic with mismatched units (no calc() fallback)
   --diff <a> <b>       Print a token diff report for two token files, then exit
   --check               Dry-run: fail (exit 1) when an -o output is stale vs tokens
@@ -84,6 +90,7 @@ Options:
   --out-dir <dir>       Output directory for the kit subcommand (default: dist)
   --json                With lint: print issues as JSON
   --serve              Serve generated outputs on a local HTTP server (with -w)
+  --playground         With serve: host the live kit preview + "propose change"
   --port <n>           Port for --serve (default: 4173)
   -n, --no-validate     Skip token validation
   -h, --help            Show help
@@ -95,6 +102,7 @@ Subcommands:
   snapshot <input>    Write the fully resolved token tree (for cross-version diffing)
   history <a> <b>...  Diff a sequence of snapshots across versions
   sync <input>        Watch tokens + artifacts; external edits reverse-sync back
+  serve <input>       Run the live Token Server (REST + SSE mesh) for an org
 `);
 }
 
@@ -324,6 +332,16 @@ function generateAll(paths, options, outputs) {
         }
       }
     }
+    if (options.registry) {
+      const reg = buildNameRegistry(merged);
+      const namesPath = outputs.length && outputs[0].path
+        ? resolve(process.cwd(), `${outputs[0].path}.names.json`)
+        : null;
+      if (namesPath) {
+        safeWrite(namesPath, `${JSON.stringify(reg.toJSON(), null, 2)}\n`);
+        console.error(`wrote registry to ${namesPath}`);
+      }
+    }
     return true;
   } catch (err) {
     console.error(`error: ${err.message}`);
@@ -548,7 +566,8 @@ export function run(argv = process.argv.slice(2)) {
     args._[0] === "reverse" ||
     args._[0] === "snapshot" ||
     args._[0] === "history" ||
-    args._[0] === "sync"
+    args._[0] === "sync" ||
+    args._[0] === "serve"
       ? args._[0]
       : null;
   const input = sub ? args._[1] : args._[0];
@@ -584,6 +603,8 @@ export function run(argv = process.argv.slice(2)) {
   options.brand = args.brand || args.B || config.brand;
   options.strict = Boolean(args.strict);
   options.serve = Boolean(args.serve);
+  options.registry = Boolean(args.registry);
+  options.playground = Boolean(args.playground);
   options.port = args.port || args.p || config.port || 4173;
   options.stdin = Boolean(args.stdin);
   if (options.stdin) options.stdinText = readStdinSync();
@@ -663,6 +684,15 @@ export function run(argv = process.argv.slice(2)) {
         writeFileSync(joinPath(outDir, name), content, "utf8");
         console.error(`wrote ${joinPath(outDir, name)}`);
       }
+      if (options.registry) {
+        const reg = buildNameRegistry(merged);
+        writeFileSync(
+          joinPath(outDir, "tokens.names.json"),
+          `${JSON.stringify(reg.toJSON(), null, 2)}\n`,
+          "utf8"
+        );
+        console.error(`wrote ${joinPath(outDir, "tokens.names.json")}`);
+      }
       console.error(
         `kit: ${kit.modes.length} mode(s), ${kit.brands.length} brand(s), ${kit.names.length} token(s)`
       );
@@ -684,7 +714,14 @@ export function run(argv = process.argv.slice(2)) {
         return 1;
       }
       const text = readFileSync(resolve(process.cwd(), file), "utf8");
-      const tree = reverse(text, options);
+      let reverseOptions = options;
+      if (args.registry) {
+        const regJson = JSON.parse(
+          readFileSync(resolve(process.cwd(), args.registry), "utf8")
+        );
+        reverseOptions = { ...options, registry: registryFromJSON(regJson) };
+      }
+      const tree = reverse(text, reverseOptions);
       const out = JSON.stringify(tree, null, 2);
       const o = parseOutputs(collect(args.output || args.o), "json")[0];
       if (o && o.path) {
@@ -873,6 +910,38 @@ export function run(argv = process.argv.slice(2)) {
         startServer(outputs, options.port, explorerHtml);
       }
       process.exitCode = ok ? 0 : 1;
+      return 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
+  if (sub === "serve") {
+    try {
+      if (!input && imports.length === 0 && globs.length === 0 && !args.stdin) {
+        console.error(
+          "error: serve requires an input file: token-to-css serve <input.json> [--playground]"
+        );
+        process.exitCode = 1;
+        return 1;
+      }
+      const tokensPath = !args.stdin && input ? resolve(process.cwd(), input) : null;
+      const server = createTokenServer({
+        tokensPath,
+        tokens: args.stdin ? JSON.parse(options.stdinText) : undefined,
+        port: options.port,
+        watch: true,
+        playground: options.playground,
+        registry: options.registry,
+        streamUrl: "/events",
+      });
+      server.listen(options.port, () =>
+        console.error(
+          `token-to-css serve listening on http://localhost:${options.port}`
+        )
+      );
       return 0;
     } catch (err) {
       console.error(`error: ${err.message}`);

@@ -1,6 +1,6 @@
 {
   "name": "token-to-css",
-  "version": "4.0.1",
+  "version": "5.0.0",
   "description": "Convert design token JSON files into framework-agnostic CSS (custom properties, SCSS, or barefoot-css).",
   "type": "module",
   "repository": {
@@ -20,6 +20,10 @@
     ".": "./src/index.js",
     "./schema.js": "./src/schema.js",
     "./locate.js": "./src/locate.js",
+    "./serve.js": "./src/serve.js",
+    "./client.js": "./src/client.js",
+    "./registry.js": "./src/registry.js",
+    "./connectors/figma.js": "./src/connectors/figma.js",
     "./presets/barefoot.js": "./src/presets/barefoot.js",
     "./presets/tailwind.js": "./src/presets/tailwind.js",
     "./presets/open-props.js": "./src/presets/open-props.js"

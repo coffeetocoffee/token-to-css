@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![npm downloads](https://img.shields.io/npm/dm/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v3.0.0](https://img.shields.io/badge/phase-3.0.0%20%E2%80%94%20major-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v5.0.0](https://img.shields.io/badge/phase-5.0.0%20%E2%80%94%20major-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 ## Install
@@ -26,10 +26,11 @@ node src/cli.js tokens.json -o output.css
 token-to-css <input.json> [options]
 token-to-css kit <input.json> [--out-dir dist] [options]
 token-to-css lint <input.json> [--contract schema.json] [--json]
-token-to-css reverse <file.css> [-o tokens.json]
+token-to-css reverse <file.css> [-o tokens.json] [--registry names.json]
 token-to-css snapshot <input.json> [-o snap.json]
 token-to-css history <snap-a.json> <snap-b.json> [snap-c.json ...]
 token-to-css sync <input.json> [options]   # generate, then watch + reverse-sync edits back
+token-to-css serve <input.json> [--port 4173] [--playground] [--registry]   # live Token Server mesh
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); e.g. scss:out.scss
@@ -54,6 +55,8 @@ Options:
   --check               Dry-run: fail (exit 1) when an -o output is stale vs tokens
   --contract <file>     Enforce required tokens + types via a JSON Schema file
   --out-dir <dir>       Output directory for the kit subcommand (default: dist)
+  --registry            Emit/consume a canonical name registry (lossless round-trip)
+  --playground         With serve: host the live kit preview + "propose change"
   --json                With lint: print issues as JSON
   --serve               Serve generated outputs on a local HTTP server (with -w)
   --port <n>            Port for --serve (default: 4173)
@@ -210,6 +213,57 @@ stability guarantee.
 **Drift reporting.** `computeDrift(source, reversed)` returns the per-group
 (`base`, `modes.*`, `brands.*`) added/changed token names, the basis for a
 "what diverged and why" report. Also experimental.
+
+## Token Server (v5.0 — live design-system mesh)
+
+`v4.0`'s `sync` made the token file bidirectional and local. v5.0 makes it
+**distributed and live**: a running service that is the single runtime source of
+truth for an entire org, not just a build step.
+
+```bash
+token-to-css serve tokens.json --port 4173 --registry
+```
+
+- **REST API**
+  - `GET /tokens` — the fully resolved tree as JSON.
+  - `GET /tokens?mode=dark&brand=acme` — the same tree with `modes`/`brands`
+    overrides applied.
+  - `GET /tokens/color.primary` — a single resolved value (`{ path, value }`).
+  - `GET /tokens.names.json` — the canonical name registry (when `--registry`).
+- **Live push (SSE).** `GET /events` streams `{ type: "snapshot" | "update", tree }`
+  the instant the file changes, a reverse-edit lands, or a connector pushes.
+- **Generated client SDK.** `GET /tokens-client.js` returns `TokenClient`, which
+  subscribes to the stream, hot-swaps `data-mode`/`data-brand` with zero rebuild,
+  and exposes the same typed tree `kit` emits. Drop it into any app:
+
+  ```html
+  <script src="http://localhost:4173/tokens-client.js"></script>
+  <script>const client = TokenClient({ streamUrl: "/events" });</script>
+  ```
+- **Bidirectional over the wire.** `POST /tokens` (write scope) folds a submitted
+  tree into `tokens.json` via `applyReversedIntoSource` and re-broadcasts to all
+  subscribers. Idempotent — a no-op submission does not re-trigger a write loop.
+  `serve` is `sync`'s two-way loop exposed over the network.
+
+**Canonical name registry (`--registry`).** Kebab-case collisions (`color.primary`
+leaf vs `color.primary.hover` nested) used to make `reverse` lossy. With a
+registry, every token path gets a unique canonical name and the mapping is
+invertible, so `reverse(convert(tokens, { registry }))` reproduces `tokens`
+byte-for-byte. The registry is emitted as `tokens.names.json` alongside outputs
+and consumed by `reverse --registry <file>`; `sync` and `serve` stop reporting
+skipped kebab collisions.
+
+**Figma connector (experimental, opt-in).** `registerFigmaConnector()` registers
+a `figma` output format and returns `push`/`pull` adapters for the Figma REST
+API (no hard dependency on Figma's SDK), so token changes flow both ways between
+the mesh and the design canvas.
+
+```js
+import { registerFigmaConnector } from "token-to-css/connectors/figma.js";
+const figma = registerFigmaConnector({ token, fileKey });
+await figma.push(tokens);            // tokens -> Figma variables
+const back = await figma.pull();     // Figma variables -> tokens
+```
 
 ## Stability & SemVer
 

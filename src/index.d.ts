@@ -32,6 +32,8 @@ export interface ConvertOptions {
   brands?: string[];
   brand?: string;
   strict?: boolean;
+  /** Emit/consume a canonical name registry so round-trips are lossless. */
+  registry?: boolean | { canonicalOf(path: string[]): string; pathOf(canonical: string): string[] | null };
 }
 
 export function flattenTokens(
@@ -163,8 +165,56 @@ export function buildKit(tokens: Tokens, options?: ConvertOptions & { title?: st
 export function buildDocsSite(tokens: Tokens, options?: ConvertOptions & { title?: string }): string;
 export function buildExplorerHTML(tokens: Tokens, options?: ConvertOptions & { files?: { name: string }[] }): string;
 
-export function reverse(css: string, options?: { barefoot?: boolean }): Tokens;
+export function reverse(css: string, options?: { barefoot?: boolean; registry?: { pathOf(canonical: string): string[] | null } }): Tokens;
 export function reverseStyleDictionary(sd: unknown): Tokens;
+
+// --- v5.0: Token Server mesh ---
+
+export interface NameRegistry {
+  canonicalOf(path: string[]): string;
+  pathOf(canonical: string): string[] | null;
+  has(canonical: string): boolean;
+  toJSON(): { version: number; names: { path: string; canonical: string }[] };
+}
+
+export function buildNameRegistry(tokens: Tokens, options?: { resolve?: boolean }): NameRegistry;
+export function registryFromJSON(json: { names: { path: string; canonical: string }[] }): NameRegistry;
+export function setByPath(node: Tokens, path: string[], value: unknown): void;
+export function getByPath(node: Tokens, path: string[]): unknown;
+
+export function buildClientJS(options?: { streamUrl?: string; name?: string }): string;
+
+export interface TokenServer extends import("node:http").Server {
+  broadcast(event: { type: string; tree?: Tokens; [k: string]: unknown }): void;
+  setTokens(tree: Tokens): void;
+  snapshotTree(): Tokens;
+  closeAll(): void;
+}
+
+export function createTokenServer(options?: {
+  tokensPath?: string;
+  tokens?: Tokens;
+  port?: number;
+  watch?: boolean;
+  playground?: boolean;
+  registry?: boolean;
+  streamUrl?: string;
+}): TokenServer;
+
+export function resolveTree(tokens: Tokens, options?: { mode?: string; brand?: string }): Tokens;
+
+export function registerFigmaConnector(options?: {
+  fetchImpl?: (url: string, init?: unknown) => Promise<unknown>;
+  token?: string;
+  fileKey?: string;
+}): {
+  push(tree: Tokens): Promise<unknown>;
+  pull(): Promise<Tokens>;
+  tokensToFigmaVariables(tree: Tokens): unknown;
+  figmaVariablesToTokens(doc: unknown): Tokens;
+};
+export function tokensToFigmaVariables(tokens: Tokens, options?: { collection?: string; mode?: string }): unknown;
+export function figmaVariablesToTokens(doc: unknown): Tokens;
 
 /**
  * Experimental: the `sync` surface (reverse-merge + drift) may change in a

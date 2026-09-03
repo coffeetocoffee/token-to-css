@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-09-03
+
+### Added — The Token Server (live design-system mesh)
+
+- **`token-to-css serve <input.json>`**: a live service that turns the token file
+  into a runtime source of truth for an entire org. REST API: `GET /tokens`
+  (resolved tree), `GET /tokens?mode=dark&brand=x` (override applied),
+  `GET /tokens/<dotted.path>` (single value), and `GET /tokens.names.json`
+  (the canonical name registry). A streaming **SSE** channel at `GET /events`
+  pushes the full tree the instant the file changes, a reverse-edit lands, or a
+  connector pushes.
+- **Generated client SDK** (`GET /tokens-client.js`): `TokenClient` subscribes to
+  the SSE push channel, hot-swaps mode/brand via `data-*` attributes with zero
+  rebuild, and exposes the same typed tree `kit` emits. Framework-agnostic and
+  tiny (no React/DOM-only APIs). Also available from `buildClientJS()`.
+- **Bidirectional write scope**: `POST /tokens` folds a submitted tree into
+  `tokens.json` via `applyReversedIntoSource` and re-broadcasts to all
+  subscribers. Idempotent — a no-op submission does not re-trigger a write loop.
+  `serve` is `sync`'s two-way loop exposed over the network.
+- **Canonical name registry** (`--registry`): the hard problem deferred from
+  v4.0. Every token path gets a unique canonical flat name and the mapping is
+  invertible, so `reverse(convert(tokens, { registry }))` reproduces the token
+  tree **byte-for-byte even for kebab-colliding names** (e.g. `color.primary`
+  leaf vs `color.primary.hover` nested). The registry is emitted as
+  `tokens.names.json` alongside outputs (and consumed by `reverse --registry`);
+  `sync` and `serve` stop reporting skipped kebab collisions.
+- **Figma connector** (`registerFigmaConnector`, experimental): the third leg of
+  interchange after CSS/SCSS and Style Dictionary. `tokensToFigmaVariables` /
+  `figmaVariablesToTokens` round-trip, and the connector pushes/pulls via the
+  Figma REST API when a `fetchImpl` is supplied. Registers an opt-in `figma`
+  output format (`convert(tokens, { format: "figma" })`). No hard dependency on
+  Figma's SDK — it is an adapter that plugs into the mesh.
+- **Shareable playground** (`serve --playground`): hosts the kit preview over
+  HTTP with a "propose change" action that POSTs back to the server write scope.
+- New library exports: `createTokenServer`, `resolveTree`, `buildClientJS`,
+  `buildNameRegistry`, `registryFromJSON`, `setByPath`, `getByPath`,
+  `registerFigmaConnector`, `tokensToFigmaVariables`, `figmaVariablesToTokens`.
+
+### Why major
+
+Introduces a long-running server process, a generated client artifact/contract,
+a canonical name registry, and a connector surface. The push-channel message
+schema and the registry format are part of the public surface and may need a
+major to change. (`sync` itself stays experimental in minors; `serve` +
+connectors graduate it.)
+
 ## [4.0.1] - 2026-09-03
 
 ### Changed
@@ -252,7 +298,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v5.0.0...HEAD
+[5.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v4.0.1...v5.0.0
+[4.0.1]: https://github.com/coffeetocoffee/token-to-css/compare/v4.0.0...v4.0.1
+[4.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v3.0.0...v4.0.0
 [3.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v2.5.1...v3.0.0
 [2.5.1]: https://github.com/coffeetocoffee/token-to-css/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v2.0.0...v2.5.0

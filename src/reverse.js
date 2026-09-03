@@ -1,5 +1,6 @@
 import { deepMerge } from "./merge.js";
 import { BAREFOOT_MAP } from "./presets/barefoot.js";
+import { setByPath } from "./registry.js";
 
 // Reverse of BAREFOOT_MAP: barefoot var name (without --) -> token path.
 const BAREFOOT_REVERSE = (() => {
@@ -113,6 +114,23 @@ function selectorTarget(selector) {
   };
 }
 
+/** Fold parsed declarations into `target`, losslessly when a registry is given. */
+function applyInto(target, decls, registry) {
+  if (registry) {
+    for (const [name, value] of decls) {
+      const path = registry.pathOf(name);
+      if (path) {
+        setByPath(target, path, value);
+      } else {
+        // Name not in the registry (e.g. a custom-mapped barefoot var): best-effort.
+        deepMerge(target, unflatten([[name, value]]));
+      }
+    }
+    return;
+  }
+  deepMerge(target, unflatten(decls));
+}
+
 /**
  * Best-effort parser: CSS/SCSS custom properties -> a nested token tree
  * (the inverse of `convert` with `format: "css"` / `"scss"`).
@@ -123,6 +141,11 @@ function selectorTarget(selector) {
  * - `[data-mode="dark"][data-brand="acme"]` is folded into both.
  * - barefoot `--bf-*` vars are mapped back to token paths.
  *
+ * When `options.registry` (a registry built with `buildNameRegistry` /
+ * `registryFromJSON`) is provided, every canonical name is mapped straight back
+ * to its original token path, so `reverse(convert(tokens, { registry }))`
+ * reproduces `tokens` byte-for-byte even for kebab-colliding token names.
+ *
  * Values are kept verbatim (already resolved in generated output).
  */
 export function reverse(css, options = {}) {
@@ -131,25 +154,25 @@ export function reverse(css, options = {}) {
   const base = {};
   const modes = {};
   const brands = {};
+  const registry = options.registry || null;
   for (const { selector, body } of blocks) {
     const sel = selector == null ? null : selector.replace(/^@theme/, "").trim();
     const decls = parseBody(body);
     if (!decls.length) continue;
-    const tree = unflatten(decls);
     const { mode, brand } = selectorTarget(sel || "");
     if (mode && brand) {
       modes[mode] = modes[mode] || {};
-      deepMerge(modes[mode], tree);
+      applyInto(modes[mode], decls, registry);
       brands[brand] = brands[brand] || {};
-      deepMerge(brands[brand], tree);
+      applyInto(brands[brand], decls, registry);
     } else if (mode) {
       modes[mode] = modes[mode] || {};
-      deepMerge(modes[mode], tree);
+      applyInto(modes[mode], decls, registry);
     } else if (brand) {
       brands[brand] = brands[brand] || {};
-      deepMerge(brands[brand], tree);
+      applyInto(brands[brand], decls, registry);
     } else {
-      deepMerge(base, tree);
+      applyInto(base, decls, registry);
     }
   }
   const result = { ...base };

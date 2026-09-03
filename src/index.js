@@ -16,7 +16,23 @@ import {
 } from "./kit.js";
 import { buildDocsSite, buildExplorerHTML } from "./docs.js";
 import { reverse, reverseStyleDictionary } from "./reverse.js";
+import { buildNameRegistry, registryFromJSON, setByPath, getByPath } from "./registry.js";
+import { createTokenServer, resolveTree } from "./serve.js";
+import { buildClientJS } from "./client.js";
+import {
+  registerFigmaConnector,
+  tokensToFigmaVariables,
+  figmaVariablesToTokens,
+} from "./connectors/figma.js";
 export { parseLocated } from "./locate.js";
+export { buildNameRegistry, registryFromJSON, setByPath, getByPath } from "./registry.js";
+export { createTokenServer, resolveTree } from "./serve.js";
+export { buildClientJS } from "./client.js";
+export {
+  registerFigmaConnector,
+  tokensToFigmaVariables,
+  figmaVariablesToTokens,
+} from "./connectors/figma.js";
 export { resolveReferences, registerFunction } from "./references.js";
 export { validateTokens, TokenValidationError } from "./schema.js";
 export { lintTokens, checkContract } from "./lint.js";
@@ -60,14 +76,17 @@ function kebab(str) {
     .toLowerCase();
 }
 
-export function flattenTokens(input, prefix = []) {
+export function flattenTokens(input, prefix = [], opts = {}) {
   const out = {};
   for (const [key, value] of Object.entries(input)) {
-    const path = [...prefix, kebab(key)];
+    const kebabPath = [...prefix, kebab(key)];
     if (value && typeof value === "object" && !Array.isArray(value)) {
-      Object.assign(out, flattenTokens(value, path));
+      Object.assign(out, flattenTokens(value, kebabPath, opts));
     } else if (value !== null && value !== undefined) {
-      out[path.join("-")] = String(value);
+      const name = opts.nameFor
+        ? opts.nameFor([...prefix, key], kebabPath)
+        : kebabPath.join("-");
+      out[name] = String(value);
     }
   }
   return out;
@@ -278,6 +297,9 @@ function buildOutput(tokens, options = {}) {
   if (opts.validate) validateTokens(tokens);
 
   const tree = normalizeW3C(tokens);
+  let registry = opts.registry || null;
+  if (registry === true) registry = buildNameRegistry(tokens);
+  const flatOpts = registry ? { nameFor: (rawPath) => registry.canonicalOf(rawPath) } : {};
   const modeKey = tree.modes ? "modes" : tree.themes ? "themes" : null;
   const modeDefs = modeKey ? tree[modeKey] : null;
   let baseTree = tree;
@@ -299,7 +321,7 @@ function buildOutput(tokens, options = {}) {
   const resolvedBase = opts.resolve
     ? resolveReferences(baseTree, { reduce: opts.reduce, strict: opts.strict })
     : baseTree;
-  const baseFlat = flattenTokens(resolvedBase);
+  const baseFlat = flattenTokens(resolvedBase, [], flatOpts);
   const customMap = customMapFor(opts);
   const baseOut = mapFlat(baseFlat, opts, customMap);
   const baseSelector = selectorForBase(opts);
@@ -316,7 +338,7 @@ function buildOutput(tokens, options = {}) {
       const r = opts.resolve
         ? resolveReferences(merged, { reduce: opts.reduce, strict: opts.strict })
         : merged;
-      const f = mapFlat(flattenTokens(r), opts, customMap);
+      const f = mapFlat(flattenTokens(r, [], flatOpts), opts, customMap);
       blocks.push({ selector: modeSelector(baseSelector, m), flat: f });
     }
   }
@@ -335,7 +357,7 @@ function buildOutput(tokens, options = {}) {
       const r = opts.resolve
         ? resolveReferences(merged, { reduce: opts.reduce, strict: opts.strict })
         : merged;
-      const f = mapFlat(flattenTokens(r), opts, customMap);
+      const f = mapFlat(flattenTokens(r, [], flatOpts), opts, customMap);
       blocks.push({
         selector: `${baseSelector}[data-brand="${b}"]`,
         flat: f,
