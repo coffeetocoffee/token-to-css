@@ -142,3 +142,38 @@ export function lighten(c, amount) {
 export function darken(c, amount) {
   return mix(c, { r: 0, g: 0, b: 0, a: c.a }, clamp(amount, 0, 1));
 }
+
+/** sRGB bytes ({r,g,b} 0..255) -> OKLCH {L (0..1), C (0..~0.4), H (0..360)}. */
+export function rgbToOklch({ r, g, b, a }) {
+  const lin = (c) => {
+    const x = c / 255;
+    return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+  };
+  const lr = lin(r), lg = lin(g), lb = lin(b);
+  const l_ = 0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb;
+  const m_ = 0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb;
+  const s_ = 0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb;
+  const lc = Math.cbrt(l_), mc = Math.cbrt(m_), sc = Math.cbrt(s_);
+  const L = 0.2104542553 * lc + 0.7936177850 * mc - 0.0040720468 * sc;
+  const A = 1.9779984951 * lc - 2.4285922050 * mc + 0.4505937099 * sc;
+  const B = 0.0259040371 * lc + 0.7827717662 * mc - 0.8086757660 * sc;
+  const C = Math.sqrt(A * A + B * B);
+  let H = (Math.atan2(B, A) * 180) / Math.PI;
+  if (H < 0) H += 360;
+  return { L, C, H, a: a == null ? 1 : a };
+}
+
+/**
+ * Weighted distance between two OKLCH colors. 0 means identical. Lightness and
+ * chroma dominate; hue is normalized to 0..1 so a 180deg hue flip costs at most
+ * ~1 unit. A `maxDistance` of ~0.1 captures near-identical colors (the
+ * "nearly match" case for hardcoded-value adoption linting).
+ */
+export function oklchDistance(a, b) {
+  const dL = a.L - b.L;
+  const dC = (a.C || 0) - (b.C || 0);
+  let dH = Math.abs((a.H || 0) - (b.H || 0));
+  if (dH > 180) dH = 360 - dH;
+  const wL = 1, wC = 2.5, wH = 1;
+  return Math.sqrt(wL * dL * dL + wC * dC * dC + wH * (dH / 180) * (dH / 180));
+}

@@ -14,6 +14,13 @@ import {
   createTokenServer,
   buildNameRegistry,
   registryFromJSON,
+  lintConsumer,
+  applyConsumerCodemod,
+  computeAdoptionScore,
+  storeSnapshot,
+  loadSnapshots,
+  createMcpContext,
+  handleMcpMessage,
 } from "./index.js";
 import { applyReversedIntoSource, computeDrift } from "./sync.js";
 import { deepMerge } from "./merge.js";
@@ -80,8 +87,10 @@ Usage:
   token-to-css serve <input.json> [--port 4173] [--playground] [--registry]
   token-to-css migrate <input.json> --from <path> --to <path> [--codemod <dir>] [--dry-run]
   token-to-css migrate <input.json> --deprecated [--codemod <dir>]
-  token-to-css federate <org.manifest.json> [-o <output>] [--lint] [--team <name>]
+  token-to-css federate <org.manifest.json> [-o <output>] [--lint] [--team <name>] [--adopt <dir>]
   token-to-css govern <input.json> [--version <semver>] [--deprecate <path> --replaced-by <path>]
+  token-to-css adopt <tokens.json> <sources...> [--fix] [--report] [--registry] [--snapshots <file>] [--max-distance 0.1]
+  token-to-css mcp <tokens.json> [--serve-url <url>]
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); prefix format, e.g. scss:out.scss
@@ -121,6 +130,12 @@ Options:
   --version <semver>   With govern: set version on all tokens
   --deprecate <path>   With govern: mark a token as deprecated
   --replaced-by <path> With govern: replacement for deprecated token
+  --fix                With adopt: rewrite matched literals to var(--token) (idempotent)
+  --report             With adopt: print the adoption score (use --snapshots to persist trend)
+  --snapshots <file>   With adopt --report: append a snapshot + print the trend
+  --max-distance <n>   With adopt: OKLCH nearest-match threshold (default 0.1)
+  --src <file>         With adopt: extra consumer source file/glob (repeatable)
+  --serve-url <url>    With mcp: point change-request creation at a running serve instance
   -n, --no-validate     Skip token validation
   -h, --help            Show help
 
@@ -135,6 +150,8 @@ Subcommands:
   migrate <input>     Generate migration codemods for token renames/deprecations
   federate <manifest> Compose multi-team token trees via an org manifest
   govern <input>      Manage token versioning and deprecation markers
+  adopt <tokens> <src> Scan consumer source for hardcoded token values; --fix rewrites them
+  mcp <tokens>        Run the Model Context Protocol server (JSON-RPC over stdio)
 `);
 }
 
@@ -607,7 +624,9 @@ export function run(argv = process.argv.slice(2)) {
     args._[0] === "serve" ||
     args._[0] === "migrate" ||
     args._[0] === "federate" ||
-    args._[0] === "govern"
+    args._[0] === "govern" ||
+    args._[0] === "adopt" ||
+    args._[0] === "mcp"
       ? args._[0]
       : null;
   const input = sub ? args._[1] : args._[0];
@@ -1117,6 +1136,30 @@ export function run(argv = process.argv.slice(2)) {
       const teamFilter = args.team;
       const { merged, teamTrees } = resolveOrgTree(manifest);
 
+      if (args.adopt) {
+        const adoptDir = resolve(process.cwd(), args.adopt);
+        const sourcesByTeam = {};
+        for (const team of Object.keys(manifest.teams)) {
+          const teamDir = joinPath(adoptDir, team);
+          const files = [];
+          try {
+            for (const f of expandGlob(joinPath(teamDir, "**", "*.{css,scss,ts,js,tsx,jsx}"))) {
+              files.push({ file: f, text: readFileSync(resolve(process.cwd(), f), "utf8") });
+            }
+          } catch {
+            /* team has no consumer sources */
+          }
+          sourcesByTeam[team] = files;
+        }
+        const { teams, org } = computeOrgAdoption(manifest, resolveOrgTree, sourcesByTeam);
+        console.log("adoption rollup:");
+        for (const [team, info] of Object.entries(teams)) {
+          console.log(`  ${team}: ${info.score}% (adopted ${info.adopted}, hardcoded ${info.hardcoded})`);
+        }
+        console.log(`  org: ${org.score}% (adopted ${org.adopted}, hardcoded ${org.hardcoded})`);
+        return 0;
+      }
+
       if (teamFilter && teamTrees[teamFilter]) {
         const teamTree = teamTrees[teamFilter];
         const format = options.format || "css";
@@ -1197,6 +1240,137 @@ export function run(argv = process.argv.slice(2)) {
       } else {
         process.stdout.write(`${JSON.stringify(tree, null, 2)}\n`);
       }
+      return 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
+  if (sub === "adopt") {
+    try {
+      if (!input) {
+        console.error(
+          "error: adopt requires a token file and source files: token-to-css adopt <tokens.json> <sources...>"
+        );
+        process.exitCode = 1;
+        return 1;
+      }
+      const { merged } = loadLocated(rebuildPaths());
+      const sourceArgs = [...args._.slice(2), ...collect(args.src || args.s)];
+      if (sourceArgs.length === 0) {
+        console.error("error: adopt requires at least one source file/glob");
+        process.exitCode = 1;
+        return 1;
+      }
+      const sources = [];
+      for (const s of sourceArgs) {
+        for (const f of expandGlob(s)) {
+          sources.push({ file: f, text: readFileSync(resolve(process.cwd(), f), "utf8") });
+        }
+      }
+      const registry = args.registry ? buildNameRegistry(merged) : null;
+      const adoptOptions = {
+        registry,
+        maxDistance: args["max-distance"] != null ? Number(args["max-distance"]) : 0.1,
+      };
+
+      if (args.report) {
+        const score = computeAdoptionScore(merged, sources, adoptOptions);
+        let out = `adoption score: ${score.score}% (adopted ${score.adopted}, hardcoded ${score.hardcoded})\n`;
+        if (args.snapshots) {
+          const all = storeSnapshot(resolve(process.cwd(), args.snapshots), score);
+          out += `snapshots stored: ${all.length}\n`;
+          out += all.map((s) => `  ${s.date}: ${s.score}%`).join("\n") + "\n";
+        }
+        process.stdout.write(out);
+        return 0;
+      }
+
+      if (args.fix) {
+        const { results, totalChanges } = applyConsumerCodemod(merged, sources, adoptOptions);
+        for (const r of results) {
+          if (r.changes > 0) {
+            writeFileSync(resolve(process.cwd(), r.file), r.text, "utf8");
+          }
+        }
+        const after = lintConsumer(
+          merged,
+          results.map((r) => ({ file: r.file, text: r.text })),
+          adoptOptions
+        );
+        console.log(
+          `adopt --fix: rewrote ${totalChanges} literal(s); ${after.findings.length} remaining matchable usage(s)`
+        );
+        process.exitCode = after.findings.length > 0 ? 1 : 0;
+        return process.exitCode;
+      }
+
+      const { findings } = lintConsumer(merged, sources, adoptOptions);
+      for (const f of findings) {
+        const kind = f.exact
+          ? "exact"
+          : `nearest (distance ${f.distance.toFixed(3)})`;
+        process.stdout.write(
+          `${f.file}:${f.line}:${f.column}: warning: hardcoded ${f.kind} '${f.value}' should use ${f.variable} [${kind}]\n`
+        );
+      }
+      if (findings.length === 0) {
+        process.stdout.write("adopt: no hardcoded token values found\n");
+        return 0;
+      }
+      process.exitCode = 1;
+      return 1;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
+  if (sub === "mcp") {
+    try {
+      if (!input) {
+        console.error(
+          "error: mcp requires a token file: token-to-css mcp <tokens.json> [--serve-url <url>]"
+        );
+        process.exitCode = 1;
+        return 1;
+      }
+      const { merged } = loadLocated(rebuildPaths());
+      const ctx = createMcpContext({ tokens: merged, serveUrl: args["serve-url"] || null });
+      const { stdin, stdout } = process;
+      let buffer = "";
+      const onData = async (chunk) => {
+        buffer += chunk.toString();
+        let nl;
+        while ((nl = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line) continue;
+          let message;
+          try {
+            message = JSON.parse(line);
+          } catch {
+            continue;
+          }
+          try {
+            const response = await handleMcpMessage(message, ctx);
+            if (response) stdout.write(JSON.stringify(response) + "\n");
+          } catch (e) {
+            stdout.write(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: message.id ?? null,
+                error: { code: -32603, message: e.message },
+              }) + "\n"
+            );
+          }
+        }
+      };
+      stdin.setEncoding("utf8");
+      stdin.on("data", onData);
       return 0;
     } catch (err) {
       console.error(`error: ${err.message}`);

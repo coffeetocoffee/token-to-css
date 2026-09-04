@@ -384,3 +384,63 @@ export type NamespacedAuthResolver = (token: string, team?: string) => "read" | 
 export function createNamespacedAuth(authConfig: { tokens: Record<string, { scope: string; teams: string[] }> }): NamespacedAuthResolver;
 export function createFlatNamespacedAuth(flatMap: Record<string, string>): NamespacedAuthResolver;
 export function createNamespacedMiddleware(authConfig: { tokens: Record<string, { scope: string; teams: string[] }> }, allowedTeams?: string[]): NamespacedAuthResolver;
+
+// --- v9.0: The Adoption Engine ---
+
+export interface ConsumerFinding {
+  file: string;
+  line: number;
+  column: number;
+  value: string;
+  kind: "color" | "dimension";
+  variable?: string;
+  path?: string | null;
+  exact: boolean;
+  distance?: number;
+}
+
+export interface ConsumerLintResult {
+  findings: ConsumerFinding[];
+  errors: number;
+  warnings: number;
+  summary: { total: number; exact: number; nearest: number };
+}
+
+export interface ConsumerSource {
+  file: string;
+  text: string;
+}
+
+export function buildValueIndex(tokens: Tokens, options?: { registry?: NameRegistry | null; maxDistance?: number }): {
+  colorIndex: Array<{ variable: string; value: string; oklch: { L: number; C: number; H: number; a: number }; path: string }>;
+  valueIndex: Map<string, string>;
+};
+
+export function scanSource(text: string): { literals: Array<{ value: string; index: number; kind: string; line: number; column: number }>; adopted: number };
+
+export function lintConsumer(tokens: Tokens, sources: ConsumerSource[], options?: { registry?: NameRegistry | null; maxDistance?: number }): ConsumerLintResult;
+
+export function applyConsumerCodemod(tokens: Tokens, sources: ConsumerSource[], options?: { registry?: NameRegistry | null; maxDistance?: number }): { results: Array<{ file: string; changes: number; text: string }>; totalChanges: number };
+
+export interface AdoptionScore {
+  score: number;
+  adopted: number;
+  hardcoded: number;
+  total: number;
+}
+
+export function computeAdoptionScore(tokens: Tokens, sources: ConsumerSource[], options?: { registry?: NameRegistry | null; maxDistance?: number }): AdoptionScore;
+
+export function storeSnapshot(path: string, info: AdoptionScore): Array<{ date: string } & AdoptionScore>;
+export function loadSnapshots(path: string): Array<{ date: string } & AdoptionScore>;
+
+export function computeOrgAdoption(manifest: OrgManifest, resolveOrgTreeFn: (m: OrgManifest) => { merged: Tokens; teamTrees: Record<string, Tokens> }, sourcesByTeam: Record<string, ConsumerSource[]>): { teams: Record<string, AdoptionScore>; org: AdoptionScore };
+
+export interface McpContext {
+  tokens: Tokens;
+  serveUrl: string | null;
+  changeRequests: unknown[];
+}
+
+export function createMcpContext(options?: { tokens?: Tokens; serveUrl?: string | null }): McpContext;
+export function handleMcpMessage(message: unknown, ctx: McpContext): unknown;

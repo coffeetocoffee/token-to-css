@@ -50,6 +50,17 @@ import { addVersionMarkers, getDeprecations, createChangeRequest, approveChangeR
 import { getImpactGraph, getTransitiveDependents, generateCodemod, applyCodemod, generateCSSCodemod } from "./migrate.js";
 import { buildOrgManifest, validateManifest, resolveOrgTree, lintOrg } from "./federation.js";
 import { createNamespacedAuth, createFlatNamespacedAuth, createNamespacedMiddleware } from "./namespaces.js";
+import {
+  buildValueIndex,
+  lintConsumer,
+  applyConsumerCodemod,
+  computeAdoptionScore,
+  storeSnapshot,
+  loadSnapshots,
+  computeOrgAdoption,
+  scanSource,
+} from "./adopt.js";
+import { createMcpContext, handleMcpMessage } from "./mcp.js";
 export { parseLocated } from "./locate.js";
 export { buildNameRegistry, registryFromJSON, setByPath, getByPath, mergeRegistries } from "./registry.js";
 export { createTokenServer, resolveTree } from "./serve.js";
@@ -101,6 +112,17 @@ export { addVersionMarkers, getDeprecations, createChangeRequest, approveChangeR
 export { getImpactGraph, getTransitiveDependents, generateCodemod, applyCodemod, generateCSSCodemod } from "./migrate.js";
 export { buildOrgManifest, validateManifest, resolveOrgTree, lintOrg } from "./federation.js";
 export { createNamespacedAuth, createFlatNamespacedAuth, createNamespacedMiddleware } from "./namespaces.js";
+export {
+  buildValueIndex,
+  lintConsumer,
+  applyConsumerCodemod,
+  computeAdoptionScore,
+  storeSnapshot,
+  loadSnapshots,
+  computeOrgAdoption,
+  scanSource,
+} from "./adopt.js";
+export { createMcpContext, handleMcpMessage } from "./mcp.js";
 
 const registeredFormats = {};
 

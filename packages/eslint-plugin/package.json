@@ -1,0 +1,15 @@
+{
+  "name": "@token-to-css/eslint",
+  "version": "9.0.0",
+  "description": "ESLint rule that flags hardcoded values which should use token CSS variables.",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT",
+  "peerDependencies": {
+    "token-to-css": ">=9.0.0"
+  },
+  "dependencies": {},
+  "files": [
+    "index.js"
+  ]
+}

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [9.0.0] - 2026-09-04
+
+### Added — The Adoption Engine
+
+- **Consumer lint** (`src/adopt.js`): `lintConsumer(tokens, sources)` scans app
+  source (CSS/SCSS/TS/JS) for hardcoded values that match — or nearly match, via
+  OKLCH nearest-distance in the color engine — a known token, suggesting the
+  `var(--token)` to use. Exact and nearest matches are both reported.
+- **Adoption codemods** (`src/adopt.js`): `applyConsumerCodemod(tokens, sources)`
+  backs `token-to-css adopt ./app --fix`, rewriting hardcoded literals to
+  `var(--token)`. Idempotent by construction (a second run reports 0 changes).
+- **Adoption score** (`src/adopt.js`): `computeAdoptionScore` returns the
+  adopted-percentage of a repo; `storeSnapshot` / `loadSnapshots` persist a trend,
+  and `computeOrgAdoption` rolls up one score per team. `token-to-css adopt --report
+  [--snapshots <file>]` prints the score + trend; `federate <m> --adopt <dir>`
+  aggregates per-team scores.
+- **MCP server** (`src/mcp.js`): `token-to-css mcp` exposes tokens, the impact
+  graph, the adoption scan, and change-request creation as MCP tools (JSON-RPC over
+  stdio, zero-dep). `create_change_request` points at a running `serve` so the CR
+  appears in `GET /change-requests`.
+- **Real package split**: `@token-to-css/stylelint` and `@token-to-css/eslint`
+  ship as standalone packages that register purely through the public surface
+  (`buildValueIndex` + `lintConsumer`), with zero plugin dependencies.
+- New public exports: `buildValueIndex`, `lintConsumer`, `applyConsumerCodemod`,
+  `computeAdoptionScore`, `storeSnapshot`, `loadSnapshots`, `computeOrgAdoption`,
+  `scanSource`, `createMcpContext`, `handleMcpMessage`.
+
 ## [8.0.0] - 2026-09-03
 
 ### Added — Universal Connector Hub
