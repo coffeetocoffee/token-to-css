@@ -1,6 +1,6 @@
 {
   "name": "token-to-css",
-  "version": "9.0.0",
+  "version": "10.0.0",
   "description": "Convert design token JSON files into framework-agnostic CSS (custom properties, SCSS, or barefoot-css).",
   "type": "module",
   "repository": {

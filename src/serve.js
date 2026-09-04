@@ -138,27 +138,38 @@ export function createTokenServer(options = {}) {
   let sourceTree = options.tokens ? structuredClone(options.tokens) : null;
   if (tokensPath && sourceTree == null) sourceTree = readJSON(tokensPath);
   let registry = useRegistry ? buildNameRegistry(sourceTree) : null;
+  // v10.0 release channels: `canary` is a staging tree promoted to `stable`.
+  const channelTrees = { stable: sourceTree };
+  if (options.channels && options.channels.canary) {
+    channelTrees.canary = options.channels.canary;
+  }
   let clientJs = buildClientJS({ streamUrl: options.streamUrl || "/events" });
 
   const clients = new Set();
+  const channelClients = new Map();
   const teamClients = new Map();
   const changeRequests = [];
   let watcher = null;
 
-  function snapshotTree() {
-    return resolveTree(sourceTree);
+  function snapshotTree(channel) {
+    const base =
+      channel === "canary" && channelTrees.canary ? channelTrees.canary : sourceTree;
+    return resolveTree(base);
   }
 
-  function broadcast(event) {
+  function broadcastChannel(channel, event) {
     const payload = `data: ${JSON.stringify(event)}\n\n`;
-    for (const res of clients) {
-      try {
-        res.write(payload);
-      } catch {
-        clients.delete(res);
+    if (channel !== "canary") {
+      for (const res of clients) {
+        try {
+          res.write(payload);
+        } catch {
+          clients.delete(res);
+        }
       }
     }
-    for (const [team, set] of teamClients) {
+    const set = channelClients.get(channel);
+    if (set) {
       for (const res of set) {
         try {
           res.write(payload);
@@ -169,16 +180,18 @@ export function createTokenServer(options = {}) {
     }
   }
 
-  function pushUpdate() {
-    if (registry) registry = buildNameRegistry(sourceTree);
-    broadcast({ type: "update", tree: snapshotTree() });
+  function pushUpdate(channel) {
+    const ch = channel || "stable";
+    if (registry && ch !== "canary") registry = buildNameRegistry(sourceTree);
+    broadcastChannel(ch, { type: "update", channel: ch, tree: snapshotTree(ch) });
   }
 
   function loadFromDisk() {
     if (!tokensPath) return;
     try {
       sourceTree = readJSON(tokensPath);
-      pushUpdate();
+      channelTrees.stable = sourceTree;
+      pushUpdate("stable");
     } catch {
       /* ignore unreadable edits */
     }
@@ -186,8 +199,9 @@ export function createTokenServer(options = {}) {
 
   function setTokens(tree) {
     sourceTree = tree;
+    channelTrees.stable = sourceTree;
     if (registry) registry = buildNameRegistry(sourceTree);
-    pushUpdate();
+    pushUpdate("stable");
   }
 
   const server = createServer((req, res) => {
@@ -226,28 +240,50 @@ export function createTokenServer(options = {}) {
     }
 
     if (req.method === "GET" && path === "/events") {
+      const channel = q.get("channel") || "stable";
       res.writeHead(200, {
         "content-type": "text/event-stream; charset=utf-8",
         "cache-control": "no-cache",
-        connection: "keep-alive",
+        "connection": "keep-alive",
       });
-      res.write(`data: ${JSON.stringify({ type: "snapshot", tree: snapshotTree() })}\n\n`);
-      clients.add(res);
-      req.on("close", () => clients.delete(res));
+      res.write(`data: ${JSON.stringify({ type: "snapshot", channel, tree: snapshotTree(channel) })}\n\n`);
+      if (channel === "canary") {
+        if (!channelClients.has("canary")) channelClients.set("canary", new Set());
+        channelClients.get("canary").add(res);
+      } else {
+        clients.add(res);
+      }
+      req.on("close", () => {
+        clients.delete(res);
+        const set = channelClients.get(channel);
+        if (set) set.delete(res);
+      });
       return;
     }
 
     if (req.method === "POST" && path === "/tokens") {
+      const channel = q.get("channel") || "stable";
       let body = "";
       req.on("data", (c) => (body += c));
       req.on("end", () => {
         try {
           const incoming = JSON.parse(body);
 
+          // Canary channel: fold the change into the staging tree only. The
+          // source file is never touched until the change is promoted.
+          if (channel === "canary" && channelTrees.canary) {
+            const { source } = applyReversedIntoSource(channelTrees.canary, incoming);
+            channelTrees.canary = source;
+            broadcastChannel("canary", { type: "update", channel: "canary", tree: snapshotTree("canary") });
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: true, channel: "canary" }));
+            return;
+          }
+
           if (approvalMode) {
             const cr = createChangeRequest(sourceTree, incoming, { author: "api" });
             changeRequests.push(cr);
-            broadcast({ type: "change-request", cr: { id: cr.id, status: cr.status } });
+            broadcastChannel("stable", { type: "change-request", channel: "stable", cr: { id: cr.id, status: cr.status } });
             res.writeHead(202, { "content-type": "application/json" });
             res.end(JSON.stringify({ ok: true, pending: true, cr: { id: cr.id, status: cr.status } }));
             return;
@@ -268,8 +304,9 @@ export function createTokenServer(options = {}) {
           }
           writeFileSync(tokensPath, `${JSON.stringify(source, null, 2)}\n`, "utf8");
           sourceTree = source;
+          channelTrees.stable = source;
           if (registry) registry = buildNameRegistry(sourceTree);
-          pushUpdate();
+          pushUpdate("stable");
           res.writeHead(200, { "content-type": "application/json" });
           res.end(JSON.stringify({ ok: true, changed: changed.length, skipped: skipped.length }));
         } catch (err) {
@@ -280,18 +317,44 @@ export function createTokenServer(options = {}) {
       return;
     }
 
+    // Release channels (v10.0): list channels and promote canary -> stable.
+    if (req.method === "GET" && path === "/channels") {
+      const channels = ["stable"];
+      if (channelTrees.canary) channels.push("canary");
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ channels }, null, 2));
+      return;
+    }
+
+    if (req.method === "POST" && path === "/promote") {
+      if (!channelTrees.canary) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "no canary channel to promote" }));
+        return;
+      }
+      sourceTree = structuredClone(channelTrees.canary);
+      channelTrees.stable = sourceTree;
+      if (registry) registry = buildNameRegistry(sourceTree);
+      if (tokensPath) writeFileSync(tokensPath, `${JSON.stringify(sourceTree, null, 2)}\n`, "utf8");
+      pushUpdate("stable");
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true, promoted: "canary->stable" }));
+      return;
+    }
+
     if (req.method === "GET" && path.startsWith("/tokens")) {
+      const channel = q.get("channel") || "stable";
       const sub = path.slice("/tokens".length).replace(/^\//, "");
       if (sub === "" || sub === "/") {
-        const tree = snapshotTree();
+        const base = channel === "canary" && channelTrees.canary ? channelTrees.canary : sourceTree;
         const mode = q.get("mode") || undefined;
         const brand = q.get("brand") || undefined;
-        const out = mode || brand ? resolveTree(sourceTree, { mode, brand }) : tree;
+        const out = mode || brand ? resolveTree(base, { mode, brand }) : snapshotTree(channel);
         res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
         res.end(JSON.stringify(out, null, 2));
         return;
       }
-      const value = getByPath(snapshotTree(), sub.split("."));
+      const value = getByPath(snapshotTree(channel), sub.split("."));
       if (value === undefined) {
         res.writeHead(404, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: "not found", path: sub }));
@@ -519,17 +582,21 @@ export function createTokenServer(options = {}) {
     }
   }
 
-  server.broadcast = broadcast;
+  server.broadcast = (event) => broadcastChannel(event && event.channel ? event.channel : "stable", event);
   server.setTokens = setTokens;
   server.snapshotTree = snapshotTree;
   server.changeRequests = changeRequests;
   server.closeAll = () => {
     if (watcher) watcher.close();
     for (const c of clients) c.end();
+    for (const [, set] of channelClients) {
+      for (const c of set) c.end();
+    }
     for (const [, set] of teamClients) {
       for (const c of set) c.end();
     }
     clients.clear();
+    channelClients.clear();
     teamClients.clear();
   };
   return server;

@@ -61,6 +61,16 @@ import {
   scanSource,
 } from "./adopt.js";
 import { createMcpContext, handleMcpMessage } from "./mcp.js";
+import {
+  bumpVersion,
+  classifyRelease,
+  generateChangelog,
+  release,
+  semverSatisfies,
+  analyzeLockfile,
+  bisectToken,
+  renderSideBySide,
+} from "./release.js";
 export { parseLocated } from "./locate.js";
 export { buildNameRegistry, registryFromJSON, setByPath, getByPath, mergeRegistries } from "./registry.js";
 export { createTokenServer, resolveTree } from "./serve.js";
@@ -123,6 +133,16 @@ export {
   scanSource,
 } from "./adopt.js";
 export { createMcpContext, handleMcpMessage } from "./mcp.js";
+export {
+  bumpVersion,
+  classifyRelease,
+  generateChangelog,
+  release,
+  semverSatisfies,
+  analyzeLockfile,
+  bisectToken,
+  renderSideBySide,
+} from "./release.js";
 
 const registeredFormats = {};
 

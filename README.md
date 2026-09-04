@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![GitHub Release](https://img.shields.io/github/v/release/coffeetocoffee/token-to-css)](https://github.com/coffeetocoffee/token-to-css/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v9.0.0](https://img.shields.io/badge/phase-9.0.0%20%E2%80%94%20major-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v10.0.0](https://img.shields.io/badge/phase-10.0.0%20%E2%80%94%20major-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 ## Install
@@ -33,6 +33,9 @@ token-to-css sync <input.json> [options]   # generate, then watch + reverse-sync
 token-to-css serve <input.json> [--port 4173] [--playground] [--registry]   # live Token Server mesh
 token-to-css adopt <tokens.json> <sources...> [--fix] [--report] [--snapshots <file>]   # consumer lint + codemod
 token-to-css mcp <tokens.json> [--serve-url <url>]   # Model Context Protocol server
+token-to-css release <prev.json> <next.json> [--version x.y.z] [--changelog <file>]   # semver bump + changelog
+token-to-css lock <lockfile.json> <prev.json> <next.json> [--version x.y.z]   # breaking-change alerts
+token-to-css bisect <token.path> --checkpoints <dir>   # find the change that flipped a token
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); e.g. scss:out.scss

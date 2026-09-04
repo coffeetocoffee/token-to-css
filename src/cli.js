@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, watch, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, watch, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { createServer } from "node:http";
 import { resolve, join as joinPath, dirname } from "node:path";
 import {
@@ -21,6 +21,11 @@ import {
   loadSnapshots,
   createMcpContext,
   handleMcpMessage,
+  release as computeRelease,
+  bisectToken,
+  renderSideBySide,
+  analyzeLockfile,
+  classifyRelease,
 } from "./index.js";
 import { applyReversedIntoSource, computeDrift } from "./sync.js";
 import { deepMerge } from "./merge.js";
@@ -91,6 +96,9 @@ Usage:
   token-to-css govern <input.json> [--version <semver>] [--deprecate <path> --replaced-by <path>]
   token-to-css adopt <tokens.json> <sources...> [--fix] [--report] [--registry] [--snapshots <file>] [--max-distance 0.1]
   token-to-css mcp <tokens.json> [--serve-url <url>]
+  token-to-css release <prev.json> <next.json> [--version x.y.z] [--changelog <file>]
+  token-to-css lock <lockfile.json> <prev.json> <next.json> [--version x.y.z]
+  token-to-css bisect <token.path> --checkpoints <dir>
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); prefix format, e.g. scss:out.scss
@@ -136,6 +144,9 @@ Options:
   --max-distance <n>   With adopt: OKLCH nearest-match threshold (default 0.1)
   --src <file>         With adopt: extra consumer source file/glob (repeatable)
   --serve-url <url>    With mcp: point change-request creation at a running serve instance
+  --canary <file>      With serve: enable a canary release channel from a token file
+  --changelog <file>   With release: prepend the generated changelog section to a file
+  --checkpoints <dir>  With bisect: directory of ordered snapshot .json checkpoints
   -n, --no-validate     Skip token validation
   -h, --help            Show help
 
@@ -152,6 +163,9 @@ Subcommands:
   govern <input>      Manage token versioning and deprecation markers
   adopt <tokens> <src> Scan consumer source for hardcoded token values; --fix rewrites them
   mcp <tokens>        Run the Model Context Protocol server (JSON-RPC over stdio)
+  release <a> <b>     Classify a token diff into a semver bump + changelog
+  lock <lock> <a> <b> Check a consumer lockfile against a release for breaking changes
+  bisect <token>      Walk checkpoints to find the change that flipped a token value
 `);
 }
 
@@ -626,7 +640,10 @@ export function run(argv = process.argv.slice(2)) {
     args._[0] === "federate" ||
     args._[0] === "govern" ||
     args._[0] === "adopt" ||
-    args._[0] === "mcp"
+    args._[0] === "mcp" ||
+    args._[0] === "release" ||
+    args._[0] === "bisect" ||
+    args._[0] === "lock"
       ? args._[0]
       : null;
   const input = sub ? args._[1] : args._[0];
@@ -1006,6 +1023,7 @@ export function run(argv = process.argv.slice(2)) {
         registry: options.registry,
         auth: options.auth,
         approve: options.approve,
+        channels: args.canary ? { canary: readTokensFile(args.canary) } : undefined,
         streamUrl: "/events",
       });
       server.listen(options.port, () =>
@@ -1371,6 +1389,102 @@ export function run(argv = process.argv.slice(2)) {
       };
       stdin.setEncoding("utf8");
       stdin.on("data", onData);
+      return 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
+  if (sub === "release") {
+    try {
+      const prevFile = input;
+      const nextFile = args._[2];
+      if (!prevFile || !nextFile) {
+        console.error(
+          "error: release requires two token files: token-to-css release <prev.json> <next.json> [--version x.y.z]"
+        );
+        process.exitCode = 1;
+        return 1;
+      }
+      const prev = readTokensFile(prevFile);
+      const next = readTokensFile(nextFile);
+      const version = args.version || "0.0.0";
+      const r = computeRelease(prev, next, { version });
+      console.log(`bump: ${r.bump}  next version: ${r.nextVersion}`);
+      console.log(`  removed: ${r.removed.length}  changed: ${r.changed.length}  added: ${r.added.length}`);
+      if (args.changelog) {
+        const cp = resolve(process.cwd(), args.changelog);
+        const existing = existsSync(cp) ? readFileSync(cp, "utf8") : "";
+        writeFileSync(cp, `${r.changelog}\n${existing}`, "utf8");
+        console.error(`wrote changelog to ${cp}`);
+      } else {
+        process.stdout.write(`\n${r.changelog}`);
+      }
+      return 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
+  if (sub === "lock") {
+    try {
+      const lockFile = input;
+      const prevFile = args._[2];
+      const nextFile = args._[3];
+      if (!lockFile || !prevFile || !nextFile) {
+        console.error(
+          "error: lock requires <lockfile.json> <prev.json> <next.json> [--version x.y.z]"
+        );
+        process.exitCode = 1;
+        return 1;
+      }
+      const lock = readTokensFile(lockFile);
+      const prev = readTokensFile(prevFile);
+      const next = readTokensFile(nextFile);
+      const version = args.version || null;
+      const res = analyzeLockfile(lock, prev, next, version);
+      console.log(`lockfile ${lock.name || "<unnamed>"} pinned ${lock.range || "*"}${version ? ` vs ${version}` : ""}`);
+      console.log(`  in range: ${res.inRange}  ok: ${res.ok}`);
+      for (const b of res.breaking) {
+        console.log(`  ${b.type}: ${b.path}${b.type === "changed" ? ` (${b.from} -> ${b.to})` : ""}`);
+      }
+      process.exitCode = res.ok ? 0 : 1;
+      return process.exitCode;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
+  if (sub === "bisect") {
+    try {
+      const tokenPath = input;
+      const cpDir = args.checkpoints;
+      if (!tokenPath || !cpDir) {
+        console.error(
+          "error: bisect requires a token path and --checkpoints <dir>: token-to-css bisect <token.path> --checkpoints <dir>"
+        );
+        process.exitCode = 1;
+        return 1;
+      }
+      const dir = resolve(process.cwd(), cpDir);
+      const files = readdirSync(dir).filter((f) => f.endsWith(".json")).sort();
+      const checkpoints = files.map((f) => ({
+        id: f,
+        tree: JSON.parse(readFileSync(joinPath(dir, f), "utf8")),
+      }));
+      const r = bisectToken(checkpoints, tokenPath);
+      if (!r.found) {
+        console.log(`bisect ${tokenPath}: no change across ${checkpoints.length} checkpoint(s)`);
+        return 0;
+      }
+      console.log(`bisect ${tokenPath}: changed at ${r.id}`);
+      console.log(renderSideBySide(tokenPath, r.from, r.to));
       return 0;
     } catch (err) {
       console.error(`error: ${err.message}`);

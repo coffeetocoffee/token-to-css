@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [10.0.0] - 2026-09-04
+
+### Added — The Versioned Design System
+
+- **Automated semantic releases** (`src/release.js`): `classifyRelease(prev, next)`
+  maps a `diffTokens` result to a semver bump (removed → major, changed → minor,
+  added → patch); `bumpVersion`, `generateChangelog`, and `release` produce the
+  next version + a changelog section. CLI: `token-to-css release <prev> <next>
+  [--version x.y.z] [--changelog <file>]`.
+- **Consumer lockfiles + breaking-change alerts** (`src/release.js`):
+  `analyzeLockfile({ range, uses }, prev, next, version)` fails a consumer pinned
+  out of range and lists every affected usage. CLI: `token-to-css lock <lockfile>
+  <prev> <next> [--version x.y.z]` (exit 1 on breaking).
+- **Time travel / bisect** (`src/release.js`): `bisectToken(checkpoints, path)`
+  walks an ordered checkpoint list to the single change that flipped a token value;
+  `renderSideBySide` prints before/after. CLI: `token-to-css bisect <token.path>
+  --checkpoints <dir>`.
+- **Release channels** (`src/serve.js`): `serve` streams `canary` and `stable`
+  channels — `GET /tokens?channel=canary`, `POST /tokens?channel=canary`,
+  `GET /channels`, and `POST /promote` (canary → stable). SSE events carry a
+  `channel` field so canary subscribers get a change before promotion while stable
+  subscribers see nothing until `promote`. CLI: `token-to-css serve <tokens>
+  --canary <file>`.
+- New public exports: `release`, `classifyRelease`, `bumpVersion`,
+  `generateChangelog`, `semverSatisfies`, `analyzeLockfile`, `bisectToken`,
+  `renderSideBySide`.
+
 ## [9.0.0] - 2026-09-04
 
 ### Added — The Adoption Engine

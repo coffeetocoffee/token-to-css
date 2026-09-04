@@ -205,6 +205,9 @@ export function createTokenServer(options?: {
   playground?: boolean;
   registry?: boolean;
   streamUrl?: string;
+  auth?: ((token: string) => "read" | "write" | null) | Record<string, "read" | "write">;
+  approve?: boolean;
+  channels?: { canary?: Tokens };
 }): TokenServer;
 
 export function resolveTree(tokens: Tokens, options?: { mode?: string; brand?: string }): Tokens;
@@ -444,3 +447,57 @@ export interface McpContext {
 
 export function createMcpContext(options?: { tokens?: Tokens; serveUrl?: string | null }): McpContext;
 export function handleMcpMessage(message: unknown, ctx: McpContext): unknown;
+
+// --- v10.0: The Versioned Design System ---
+
+export type ReleaseBump = "none" | "patch" | "minor" | "major";
+
+export interface ReleaseResult {
+  bump: ReleaseBump;
+  nextVersion: string;
+  changelog: string;
+  removed: string[];
+  changed: string[];
+  added: string[];
+}
+
+export function bumpVersion(version: string, bump: ReleaseBump): string;
+export function classifyRelease(prevTokens: Tokens, nextTokens: Tokens): { bump: ReleaseBump; removed: string[]; changed: string[]; added: string[] };
+export function generateChangelog(version: string, result: { removed: string[]; changed: string[]; added: string[] }, options?: { prevVersion?: string }): string;
+export function release(prevTokens: Tokens, nextTokens: Tokens, options?: { version?: string }): ReleaseResult;
+export function semverSatisfies(version: string, range: string): boolean;
+
+export interface ConsumerLockfile {
+  name?: string;
+  range: string;
+  uses: string[];
+}
+
+export interface LockfileAlert {
+  path: string;
+  type: "removed" | "changed";
+  from?: string;
+  to?: string;
+}
+
+export function analyzeLockfile(lock: ConsumerLockfile, prevTokens: Tokens, nextTokens: Tokens, nextVersion?: string | null): { inRange: boolean; ok: boolean; breaking: LockfileAlert[]; range: string; version: string | null };
+
+export interface Checkpoint {
+  id: string;
+  label?: string;
+  tree: Tokens;
+}
+
+export interface BisectResult {
+  found: boolean;
+  index?: number;
+  id?: string;
+  label?: string;
+  from?: unknown;
+  to?: unknown;
+  prevId?: string;
+  prevValue?: unknown;
+}
+
+export function bisectToken(checkpoints: Checkpoint[], tokenPath: string): BisectResult;
+export function renderSideBySide(tokenPath: string, from: unknown, to: unknown): string;
