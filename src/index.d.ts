@@ -630,3 +630,83 @@ export interface BisectResult {
 
 export function bisectToken(checkpoints: Checkpoint[], tokenPath: string): BisectResult;
 export function renderSideBySide(tokenPath: string, from: unknown, to: unknown): string;
+
+// --- v12.0: VS Code extension language tools (over MCP) ---
+
+export interface TokenInfo {
+  path: string;
+  value: string;
+  variable: string | null;
+  resolved: boolean;
+  color: { hex: string; swatch: boolean } | null;
+  kind: "color" | "dimension" | "text";
+  deprecated: boolean;
+  replacedBy: string | null;
+  dependents: string[];
+}
+
+export interface CompletionEntry {
+  label: string;
+  path: string;
+  value: string;
+  variable: string;
+  kind: "token" | "deprecated";
+  deprecated: boolean;
+  replacedBy: string | null;
+  detail: string;
+}
+
+export interface CompletionResult {
+  completions: CompletionEntry[];
+  total: number;
+}
+
+export interface EditorDiagnostic {
+  source: "token-to-css";
+  file: string;
+  line: number;
+  column: number;
+  index: number;
+  length: number;
+  severity: "warning" | "error";
+  code: "hardcoded-value";
+  message: string;
+  value: string;
+  variable: string;
+  path: string | null;
+  exact: boolean;
+  quickFix: { title: string; variable: string };
+}
+
+export interface DiagnosticsResult {
+  diagnostics: EditorDiagnostic[];
+  total: number;
+}
+
+// --- v12.0: Hosted web playground ---
+
+export interface PlaygroundSession {
+  id: string;
+  url: string;
+  server: TokenServer;
+  remote: { url: string; token: string | null } | null;
+  createdAt: string;
+}
+
+export function buildLandingHTML(title?: string): string;
+
+export function createPlaygroundServer(options?: {
+  title?: string;
+}): Promise<PlaygroundHub>;
+
+export interface PlaygroundHub extends import("node:http").Server {
+  sessions: Map<string, PlaygroundSession>;
+  createSession(options?: {
+    tokens?: Tokens;
+    tokensText?: string;
+    serveUrl?: string;
+    token?: string;
+  }): Promise<PlaygroundSession>;
+  proposeToRemote(session: PlaygroundSession, proposal: Tokens): Promise<Record<string, unknown>>;
+  closeAll(): void;
+}

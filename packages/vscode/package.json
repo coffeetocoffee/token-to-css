@@ -1,0 +1,64 @@
+{
+  "name": "token-to-css-vscode",
+  "displayName": "token-to-css — design tokens",
+  "description": "Hover, completion, and adoption diagnostics for design tokens. A thin client over `token-to-css mcp` — no bundled compiler.",
+  "version": "12.0.0",
+  "publisher": "coffeetocoffee",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "./src/extension.js",
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=20"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:css",
+    "onLanguage:scss",
+    "onLanguage:less",
+    "onLanguage:json"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "token-to-css",
+      "properties": {
+        "tokenToCss.tokensPath": {
+          "type": "string",
+          "default": "tokens.json",
+          "description": "Token file (relative to the workspace root) the language server reads."
+        },
+        "tokenToCss.bin": {
+          "type": "string",
+          "default": "token-to-css",
+          "description": "The token-to-css CLI on PATH. The extension spawns `<bin> mcp <tokens>` and speaks MCP over stdio."
+        },
+        "tokenToCss.serveUrl": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "URL of a running `token-to-css serve` instance. Enables the visual editor deep-link and the live theme preview webview."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "token-to-css.restart",
+        "title": "token-to-css: Restart language server"
+      },
+      {
+        "command": "token-to-css.openEditor",
+        "title": "token-to-css: Open visual token editor"
+      },
+      {
+        "command": "token-to-css.preview",
+        "title": "token-to-css: Open live theme preview"
+      }
+    ]
+  }
+}

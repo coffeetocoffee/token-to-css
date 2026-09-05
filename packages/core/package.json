@@ -1,6 +1,6 @@
 {
   "name": "@token-to-css/core",
-  "version": "11.5.0",
+  "version": "12.0.0",
   "description": "Compiler surface for token-to-css: convert design tokens into CSS/SCSS and many other outputs, with zero server, editor, or connector dependencies.",
   "type": "module",
   "repository": {

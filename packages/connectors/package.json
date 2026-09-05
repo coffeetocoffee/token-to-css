@@ -1,6 +1,6 @@
 {
   "name": "@token-to-css/connectors",
-  "version": "11.5.0",
+  "version": "12.0.0",
   "description": "Connector hub plus Figma/Storybook/GitHub/CMS connectors for token-to-css. Depends only on @token-to-css/core.",
   "type": "module",
   "repository": {
@@ -26,7 +26,7 @@
     "index.d.ts"
   ],
   "dependencies": {
-    "@token-to-css/core": "^11.5.0"
+    "@token-to-css/core": "^12.0.0"
   },
   "engines": {
     "node": ">=20"

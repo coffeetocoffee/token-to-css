@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [12.0.0] - 2026-09-05
+
+### Added — VS Code Extension & Hosted Playground
+
+`[~]` since v6.0; the editor comes to where developers already are.
+
+- **VS Code extension** (`packages/vscode`, thin client over `token-to-css mcp`):
+  - **Language backend**: spawns the installed CLI (`token-to-css mcp
+    <tokens.json>`) as a child process and speaks the existing MCP tools — no
+    new protocol, no bundled compiler. New `McpClient` (newline-delimited
+    JSON-RPC 2.0 over stdio) + pure, editor-agnostic `providers.js`
+    (`hoverAt`, `completionsAt`, `diagnosticsFor`, `quickFixFor`).
+  - **Three new MCP tools** (`src/mcp.js`, riding the existing JSON-RPC
+    surface): `token_info` (resolved value, color swatch hex, CSS variable,
+    deprecation/`replacedBy`, transitive dependents), `completions`
+    (`kind:"css"` → `--var` names for CSS/SCSS; `kind:"ref"` → `{dotted}` refs
+    for token files; prefix-filtered, deprecation-tagged), and `diagnostics`
+    (the v9 consumer lint as squiggles: hardcoded color/dimension literals that
+    match — or nearly match, via OKLCH — a known token, each with a
+    `use var(--token)` quick-fix).
+  - **Hover + swatch**: `var(--color-primary)`, a `{token}` ref, or a raw hex
+    that matches a token resolves to value + swatch + canonical variable;
+    deprecated tokens render their migration path.
+  - **Completion**: `--*` names in CSS/SCSS and `{dotted}` refs in token
+    files, from the resolved tree (mode/brand-scoped overrides included).
+  - **Diagnostics + quick-fix**: the v9 consumer lint as editor squiggles;
+    a quick-fix applies `adopt --fix` semantics to the single squiggle
+    (idempotent — the literal lands inside `var(...)`).
+  - **Commands**: restart language server, open the v10.5 visual editor
+    (`tokenToCss.serveUrl`), live theme preview webview (iframes the running
+    serve's playground over `/events` — same mesh subscription).
+  - The pure language brain is unit-tested without the `vscode` API
+    (`packages/vscode/test/extension.test.js`, 11 tests, including an
+    end-to-end spawn of the real CLI over stdio).
+- **Hosted web playground** (`token-to-css playground`): the v5.1 shareable
+  playground promoted to a hosted default. A landing hub accepts a pasted
+  `tokens.json` (or a running `serve` URL + optional bearer token) and boots a
+  live session — each session **is** a real Token Server
+  (`createTokenServer({ playground: true, editor: true })` on an ephemeral
+  port), so the v10.5 commit pipeline
+  (`POST /editor/preview` → governed `POST /tokens`) is intact by
+  construction. Sessions pointing at a remote `serve` mirror its tree and
+  forward proposals to the remote write scope (with `serve --approve` they
+  arrive as change requests / token PRs via the GitHub connector).
+  - `createPlaygroundServer` / `buildLandingHTML` exported from the root
+    package; `POST /session` + `POST /session/<id>/propose` routes.
+- **Package surface**: new subpath exports `token-to-css/mcp.js` and
+  `token-to-css/playground.js`; MCP `initialize` reports `12.0.0`.
+- *Why minor:* no core protocol change — the extension rides the existing MCP
+  tools, editor routes, and SSE stream; the marketplace listing and the hosted
+  site are new distribution, not new contracts.
+
+### Upgrade notes
+
+- Fully backward-compatible. The three new MCP tools are additive;
+  `tools/list` now advertises them. The extension ships as
+  `packages/vscode` (workspace member; packaged separately for the
+  marketplace — it is not part of the npm meta-package `files`).
+
 ## [11.5.0] - 2026-09-05
 
 ### Added — The Real Package Split

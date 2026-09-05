@@ -10,6 +10,7 @@
 export * from "@token-to-css/core";
 export * from "@token-to-css/connectors";
 export { createTokenServer, resolveTree } from "./serve.js";
+export { createPlaygroundServer, buildLandingHTML } from "./playground.js";
 export { validateEditValue, buildEditCommit, editImpact, previewEdit, buildEditorHTML } from "./editor.js";
 export { createMcpContext, handleMcpMessage } from "./mcp.js";
 export { relayChange, attachOrgRelay, consumeSSE, handleRelayPost } from "./relay.js";

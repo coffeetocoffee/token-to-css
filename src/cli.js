@@ -122,6 +122,7 @@ Usage:
   token-to-css govern <input.json> [--version <semver>] [--deprecate <path> --replaced-by <path>]
   token-to-css adopt <tokens.json> <sources...> [--fix] [--report] [--registry] [--snapshots <file>] [--max-distance 0.1]
   token-to-css mcp <tokens.json> [--serve-url <url>]
+  token-to-css playground [--port 4180]   (hosted: paste tokens or a serve URL)
   token-to-css release <prev.json> <next.json> [--version x.y.z] [--changelog <file>]
   token-to-css lock <lockfile.json> <prev.json> <next.json> [--version x.y.z]
   token-to-css bisect <token.path> --checkpoints <dir>
@@ -195,6 +196,8 @@ Subcommands:
   govern <input>      Manage token versioning and deprecation markers
   adopt <tokens> <src> Scan consumer source for hardcoded token values; --fix rewrites them
   mcp <tokens>        Run the Model Context Protocol server (JSON-RPC over stdio)
+  playground          Host the shareable playground: paste tokens or a serve URL to
+                      boot a live preview + visual editor session
   release <a> <b>     Classify a token diff into a semver bump + changelog
   lock <lock> <a> <b> Check a consumer lockfile against a release for breaking changes
   bisect <token>      Walk checkpoints to find the change that flipped a token value
@@ -673,13 +676,14 @@ export function run(argv = process.argv.slice(2)) {
     args._[0] === "govern" ||
     args._[0] === "adopt" ||
     args._[0] === "mcp" ||
+    args._[0] === "playground" ||
     args._[0] === "release" ||
     args._[0] === "bisect" ||
     args._[0] === "lock"
       ? args._[0]
       : null;
   const input = sub ? args._[1] : args._[0];
-  if (!input && imports.length === 0 && globs.length === 0 && !args.stdin) {
+  if (!input && imports.length === 0 && globs.length === 0 && !args.stdin && sub !== "playground") {
     console.error(
       sub === "kit"
         ? "error: kit requires an input file: token-to-css kit <input.json>"
@@ -1526,6 +1530,32 @@ export function run(argv = process.argv.slice(2)) {
       };
       stdin.setEncoding("utf8");
       stdin.on("data", onData);
+      return 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
+  if (sub === "playground") {
+    try {
+      import("./playground.js").then(async ({ createPlaygroundServer }) => {
+        const port = Number(options.port) || 4180;
+        const hub = await createPlaygroundServer({
+          title: "token-to-css — hosted playground",
+        });
+        hub.listen(port, () => {
+          console.log(`playground hub  → http://localhost:${port}/`);
+          console.log("paste tokens.json (or a serve URL) to boot a live preview + editor session");
+        });
+        const shutdown = () => {
+          hub.closeAll();
+          hub.close();
+        };
+        process.on("SIGINT", shutdown);
+        process.on("SIGTERM", shutdown);
+      });
       return 0;
     } catch (err) {
       console.error(`error: ${err.message}`);

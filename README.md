@@ -6,7 +6,7 @@
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![GitHub Release](https://img.shields.io/github/v/release/coffeetocoffee/token-to-css)](https://github.com/coffeetocoffee/token-to-css/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v11.5.0](https://img.shields.io/badge/phase-11.5.0%20%E2%80%94%20the%20real%20package%20split-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v12.0.0](https://img.shields.io/badge/phase-12.0.0%20%E2%80%94%20VS%20Code%20extension%20%26%20hosted%20playground-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 ## Install
@@ -269,6 +269,48 @@ disable) — no new process or protocol:
 - commits reuse the governed `POST /tokens` write scope (403 read-only,
   202 with `--approve`, `?channel=canary`); draft values preview live without
   touching the source.
+
+## VS Code extension & hosted playground (v12)
+
+**VS Code extension** (`packages/vscode`) — a thin client over
+`token-to-css mcp`: the extension spawns your installed CLI and speaks the
+existing MCP tools; no compiler is bundled. It adds three language tools to
+the MCP surface (`token_info`, `completions`, `diagnostics`) so hover,
+completion, and squiggles all resolve server-side:
+
+- **hover** a `var(--color-primary)`, a `{token}` ref, or a raw hex that
+  matches a token → resolved value, swatch hex, canonical variable,
+  deprecation + `replacedBy` migration path;
+- **completion**: `--*` names in CSS/SCSS and `{dotted}` refs in token files
+  (mode/brand-scoped overrides included; deprecated entries are tagged);
+- **diagnostics + quick-fix**: the v9 consumer lint as editor squiggles —
+  a hardcoded `#3b82f6` becomes "use `var(--color-primary)`", and the
+  quick-fix applies `adopt --fix` semantics to that single squiggle
+  (idempotent);
+- **commands**: restart the language server, open the visual editor, and a
+  live theme preview webview (iframes a running `serve` over `/events`).
+
+```jsonc
+// .vscode/settings.json
+{ "tokenToCss.tokensPath": "tokens.json",        // default
+  "tokenToCss.bin": "token-to-css",              // CLI on PATH
+  "tokenToCss.serveUrl": "http://localhost:4173" // optional: editor + preview
+}
+```
+
+**Hosted playground** — the shareable playground promoted to a hosted default:
+
+```
+token-to-css playground --port 4180
+```
+
+The landing page accepts a pasted `tokens.json` (or a running `serve` URL +
+optional bearer token) and boots a session. Each session **is** a real Token
+Server (`playground + editor` on an ephemeral port), so the full v10.5
+commit pipeline — diff-before-commit, semver verdict, governed write scope —
+is intact by construction. Sessions pointed at a remote `serve` mirror its
+tree and forward proposals to the remote write scope; with `serve --approve`
+they arrive as change requests / token PRs (GitHub connector).
 
 ## Connectors
 
