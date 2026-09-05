@@ -11,30 +11,29 @@ import {
   buildKit,
   reverse,
   resolveReferences,
-  createTokenServer,
   buildNameRegistry,
   registryFromJSON,
-  lintConsumer,
-  applyConsumerCodemod,
-  computeAdoptionScore,
-  storeSnapshot,
-  loadSnapshots,
-  createMcpContext,
-  handleMcpMessage,
-  release as computeRelease,
   bisectToken,
   renderSideBySide,
   analyzeLockfile,
   classifyRelease,
-} from "./index.js";
-import { applyReversedIntoSource, computeDrift } from "./sync.js";
-import { deepMerge } from "./merge.js";
-import { expandGlob, globBaseDir } from "./glob.js";
-import { parseLocated } from "./locate.js";
-import { buildExplorerHTML } from "./docs.js";
-import { addVersionMarkers, getDeprecations, createChangeRequest, approveChangeRequest, rejectChangeRequest } from "./governance.js";
-import { getImpactGraph, generateCodemod, applyCodemod, generateCSSCodemod } from "./migrate.js";
+  release as computeRelease,
+} from "@token-to-css/core";
 import {
+  applyReversedIntoSource,
+  computeDrift,
+  deepMerge,
+  parseLocated,
+  buildExplorerHTML,
+  addVersionMarkers,
+  getDeprecations,
+  createChangeRequest,
+  approveChangeRequest,
+  rejectChangeRequest,
+  getImpactGraph,
+  generateCodemod,
+  applyCodemod,
+  generateCSSCodemod,
   buildOrgManifest,
   resolveOrgTree,
   lintOrg,
@@ -43,12 +42,27 @@ import {
   validateFederatedManifest,
   resolveFederatedTree,
   analyzeCrossOrgLock,
-} from "./federation.js";
-import { computeFederatedAdoption } from "./adopt.js";
+} from "@token-to-css/core";
+import {
+  lintConsumer,
+  applyConsumerCodemod,
+  computeAdoptionScore,
+  storeSnapshot,
+  loadSnapshots,
+  computeFederatedAdoption,
+} from "./adopt.js";
+import {
+  createMcpContext,
+  handleMcpMessage,
+} from "./mcp.js";
+import { createTokenServer } from "./serve.js";
+import { expandGlob, globBaseDir } from "./glob.js";
 import { attachOrgRelay } from "./relay.js";
-import { registerStorybookConnector } from "./connectors/storybook.js";
-import { registerGithubPrConnector } from "./connectors/github.js";
-import { registerCmsConnector } from "./connectors/cms.js";
+import {
+  registerStorybookConnector,
+  registerGithubPrConnector,
+  registerCmsConnector,
+} from "@token-to-css/connectors";
 
 // Eagerly register the built-in connectors' output formats so `-f storybook`,
 // `-f github`, and `-f cms` work out of the box. The connectors register a

@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { resolveReferences, normalizeW3C } from "./index.js";
-import { parseColor, rgbToOklch, oklchDistance } from "./color.js";
+import { resolveReferences, normalizeW3C } from "@token-to-css/core";
+import { parseColor, rgbToOklch, oklchDistance } from "@token-to-css/core";
 
 function kebab(str) {
   return String(str)

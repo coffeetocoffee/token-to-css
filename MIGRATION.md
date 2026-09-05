@@ -156,6 +156,33 @@ What changes and what is new:
 | ------- | ------------------- |
 | 11.0.0  | Cross-org federation: published token packages (`resolvePackage`), `org:team:canonical` registries (`mergeOrgRegistries`), server-to-server relay arriving as change-requests (`serve --relay`, `relayChange`, `attachOrgRelay`), org rooms & trust (`createOrgAuth`, `serve --org`), cross-org lockfile alerts (`analyzeCrossOrgLock`), cross-org adoption rollup (`computeFederatedAdoption`) |
 
+## From 11.x to 11.5
+
+**No breaking changes.** v11.5 is a distribution change: the compiler and the
+connector hub now ship as separate npm packages, and the root package becomes a
+meta-package that re-exports both.
+
+- **Import paths are unchanged.** `token-to-css` (the meta) re-exports
+  `@token-to-css/core` + `@token-to-css/connectors` + the server/editor/MCP/
+  relay/adoption layers from `src/index.js`, and every historical subpath
+  (`token-to-css/core.js`, `/schema.js`, `/connectors/*.js`, `/presets/*.js`,
+  …) resolves through a thin shim. Zero code changes required.
+- **Compiler-only consumers can slim down.** If you only use `convert`,
+  `flattenTokens`, `resolveReferences`, `normalizeW3C`, references, colors,
+  registry, reverse, lint, migrate, federation, or release, install
+  `@token-to-css/core` directly — it pulls no `serve`/`editor`/connector code.
+- **Connector-only consumers.** `@token-to-css/connectors` ships the v8 hub SDK
+  plus the Figma/Storybook/GitHub/CMS connectors and depends only on
+  `@token-to-css/core`.
+- **`src/core.js` subpath** now re-exports the real `@token-to-css/core`
+  package. Its surface is the compiler set; `createTokenServer`/`resolveTree`
+  remain on the meta package (import them from `token-to-css` or
+  `token-to-css/serve.js`).
+
+| Version | What you can now do |
+| ------- | ------------------- |
+| 11.5.0  | The real package split: `@token-to-css/core` (compiler only, zero plugin deps), `@token-to-css/connectors` (hub SDK + Figma/Storybook/GitHub/CMS), root meta-package with unchanged import paths, per-package publish workflow |
+
 ## Stability guarantees (from 1.0.0)
 
 - **CLI flags** will not be removed or renamed except in a major version, and

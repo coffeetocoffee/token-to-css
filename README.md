@@ -6,7 +6,7 @@
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![GitHub Release](https://img.shields.io/github/v/release/coffeetocoffee/token-to-css)](https://github.com/coffeetocoffee/token-to-css/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v11.0.0](https://img.shields.io/badge/phase-11.0.0%20%E2%80%94%20cross--org%20federation-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v11.5.0](https://img.shields.io/badge/phase-11.5.0%20%E2%80%94%20the%20real%20package%20split-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 ## Install
@@ -407,6 +407,28 @@ const { css, map } = convertToMap(tree, loc, { format: "css" }); // + Source Map
 `resolveReferences`, `lintTokens`, `buildKit`, `reverse`, `createTokenServer`,
 federation, governance, adoption, release — is exported from the root and
 typed in `src/index.d.ts`.
+
+## Packages (v11.5 split)
+
+The batteries-included `token-to-css` meta-package re-exports everything, so
+existing imports keep working. For slimmer installs, the compiler and the
+connector hub ship separately:
+
+| Package                        | Use it for                                                                 |
+| ------------------------------ | -------------------------------------------------------------------------- |
+| `token-to-css`                 | Everything: compiler + serve/editor/MCP/relay/adoption + connectors (meta) |
+| `@token-to-css/core`           | Compiler only — `convert`, references, colors, registry, reverse, lint, migrate, federation, release. Zero plugin deps, no serve/editor code. |
+| `@token-to-css/connectors`     | The connector hub SDK + Figma/Storybook/GitHub/CMS connectors (depends only on `@token-to-css/core`) |
+
+```bash
+npm install @token-to-css/core          # just the compiler
+npm install @token-to-css/connectors    # + the connector hub
+```
+
+```js
+import { convert } from "@token-to-css/core";
+import { registerGithubPrConnector } from "@token-to-css/connectors";
+```
 
 ## Plugins
 

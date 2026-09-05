@@ -8,7 +8,7 @@
  * policy, when the CR is approved.
  */
 
-import { createChangeRequest } from "./governance.js";
+import { createChangeRequest } from "@token-to-css/core";
 
 function deepEqualJSON(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);

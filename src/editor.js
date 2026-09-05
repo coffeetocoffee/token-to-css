@@ -4,16 +4,12 @@ import {
   resolveReferences,
   normalizeW3C,
   convert,
-} from "./index.js";
-import {
   generateCodemod,
   applyCodemod,
   getImpactGraph,
   getTransitiveDependents,
-} from "./migrate.js";
-import { parseColor } from "./color.js";
-import { getDeprecations } from "./governance.js";
-
+} from "@token-to-css/core";
+import { parseColor, getDeprecations } from "@token-to-css/core";
 const RESERVED_KEYS = new Set(["modes", "themes", "brands", "brand", "teams"]);
 
 // Colors parseColor actually understands (hsl() is left to CSS/the resolver).

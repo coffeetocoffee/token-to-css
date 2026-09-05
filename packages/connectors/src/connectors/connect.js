@@ -23,7 +23,7 @@
  * Connectors depend only on the public core surface (`registerFormat`,
  * `resolveReferences`, `normalizeW3C`) so they ship independently.
  */
-import { registerFormat, resolveReferences, normalizeW3C } from "./index.js";
+import { registerFormat, resolveReferences, normalizeW3C } from "@token-to-css/core";
 
 /** Resolve + reduce a token tree for transport to an external system. */
 export function toTransportTree(tokens) {

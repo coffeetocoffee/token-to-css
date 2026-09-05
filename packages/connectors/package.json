@@ -1,0 +1,26 @@
+{
+  "name": "@token-to-css/connectors",
+  "version": "11.5.0",
+  "description": "Connector hub plus Figma/Storybook/GitHub/CMS connectors for token-to-css. Depends only on @token-to-css/core.",
+  "type": "module",
+  "main": "./src/connectors/index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": "./src/connectors/index.js",
+    "./figma.js": "./src/connectors/figma.js",
+    "./storybook.js": "./src/connectors/storybook.js",
+    "./github.js": "./src/connectors/github.js",
+    "./cms.js": "./src/connectors/cms.js"
+  },
+  "files": [
+    "src",
+    "index.d.ts"
+  ],
+  "dependencies": {
+    "@token-to-css/core": "^11.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

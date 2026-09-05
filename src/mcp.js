@@ -1,4 +1,4 @@
-import { normalizeW3C, resolveReferences, getTransitiveDependents, createChangeRequest } from "./index.js";
+import { normalizeW3C, resolveReferences, getTransitiveDependents, createChangeRequest } from "@token-to-css/core";
 
 /**
  * Build an MCP context. `tokens` is the raw token tree; `serveUrl` (optional)

@@ -7,14 +7,17 @@ import {
   convert,
   reverse,
   buildNameRegistry,
-} from "./index.js";
-import { applyReversedIntoSource } from "./sync.js";
-import { deepMerge } from "./merge.js";
-import { buildClientJS } from "./client.js";
-import { buildExplorerHTML } from "./docs.js";
+  applyReversedIntoSource,
+  deepMerge,
+  buildClientJS,
+  buildExplorerHTML,
+  createChangeRequest,
+  approveChangeRequest,
+  rejectChangeRequest,
+  applyChangeRequest,
+} from "@token-to-css/core";
 import { buildEditorHTML, previewEdit } from "./editor.js";
-import { createChangeRequest, approveChangeRequest, rejectChangeRequest, applyChangeRequest } from "./governance.js";
-import { getConnector, listConnectors } from "./connect.js";
+import { getConnector, listConnectors } from "@token-to-css/connectors";
 import { handleRelayPost, relayChange } from "./relay.js";
 
 function readJSON(p) {

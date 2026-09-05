@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [11.5.0] - 2026-09-05
+
+### Added — The Real Package Split
+
+`[~]` since v6.0; the compiler now ships as its own dependency-free package.
+
+- **`@token-to-css/core`**: the compiler surface (`convert`, `flattenTokens`,
+  `resolveReferences`, `normalizeW3C`, references, colors, registry, reverse,
+  lint, migrate, federation, release) moves to `packages/core` and publishes as
+  a standalone npm package. Zero plugin deps — the package contains no
+  `serve`/`editor`/`mcp`/`relay`/`connect`/connector file, and a package test
+  scans the source tree to prove the boundary. Kits that only need the
+  compiler install `@token-to-css/core` directly.
+- **`@token-to-css/connectors`**: the v8 Universal Connector Hub SDK plus the
+  Figma/Storybook/GitHub/CMS connectors move to `packages/connectors` and
+  publish as an opt-in package depending only on `@token-to-css/core`.
+- **Root stays batteries-included**: `token-to-css` becomes a meta-package —
+  `src/index.js` re-exports `core` + `connectors` + the server/editor/MCP/
+  relay/adoption layers, and every historical subpath
+  (`token-to-css/schema.js`, `/connectors/*.js`, `/presets/*.js`, `/core.js`,
+  …) resolves through a thin shim. **No import changes required** — the 1.0
+  SemVer contract holds.
+- **Per-package publishing**: the release workflow publishes `core` →
+  `connectors` → meta in order, skipping any package whose version is already
+  on npm (idempotent like the 0.3.0 rule).
+- **Package-level tests**: `packages/core/test/core.test.js` (compiler surface,
+  lossless registry round-trip, boundary scan) and
+  `packages/connectors/test/connectors.test.js` (hub SDK, per-connector
+  round-trips, core-only dependency scan). Full suite: 267 tests.
+
+### Upgrade notes
+- Import paths are unchanged. New installs that want only the compiler can use
+  `npm install @token-to-css/core`; the meta package depends on both new
+  packages automatically.
+
 ## [11.0.0] - 2026-09-05
 
 ### Added — Cross-org Federation
@@ -577,6 +612,8 @@ connectors graduate it.)
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
 [Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v10.5.0...HEAD
+[11.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v11.0.0...v11.5.0
+[11.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v10.5.0...v11.0.0
 [10.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v10.0.0...v10.5.0
 [10.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v9.0.0...v10.0.0
 [9.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v8.0.0...v9.0.0
