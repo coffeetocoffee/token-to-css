@@ -3,6 +3,15 @@
   "version": "11.5.0",
   "description": "Compiler surface for token-to-css: convert design tokens into CSS/SCSS and many other outputs, with zero server, editor, or connector dependencies.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coffeetocoffee/token-to-css.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/coffeetocoffee/token-to-css#readme",
+  "bugs": {
+    "url": "https://github.com/coffeetocoffee/token-to-css/issues"
+  },
   "main": "./src/index.js",
   "types": "./index.d.ts",
   "exports": {

@@ -3,6 +3,15 @@
   "version": "11.5.0",
   "description": "Connector hub plus Figma/Storybook/GitHub/CMS connectors for token-to-css. Depends only on @token-to-css/core.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coffeetocoffee/token-to-css.git",
+    "directory": "packages/connectors"
+  },
+  "homepage": "https://github.com/coffeetocoffee/token-to-css#readme",
+  "bugs": {
+    "url": "https://github.com/coffeetocoffee/token-to-css/issues"
+  },
   "main": "./src/connectors/index.js",
   "types": "./index.d.ts",
   "exports": {
