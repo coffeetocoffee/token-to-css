@@ -34,7 +34,18 @@ import { parseLocated } from "./locate.js";
 import { buildExplorerHTML } from "./docs.js";
 import { addVersionMarkers, getDeprecations, createChangeRequest, approveChangeRequest, rejectChangeRequest } from "./governance.js";
 import { getImpactGraph, generateCodemod, applyCodemod, generateCSSCodemod } from "./migrate.js";
-import { buildOrgManifest, resolveOrgTree, lintOrg, mergeRegistries as mergeOrgRegistries } from "./federation.js";
+import {
+  buildOrgManifest,
+  resolveOrgTree,
+  lintOrg,
+  mergeRegistries as mergeOrgRegistries,
+  buildFederatedManifest,
+  validateFederatedManifest,
+  resolveFederatedTree,
+  analyzeCrossOrgLock,
+} from "./federation.js";
+import { computeFederatedAdoption } from "./adopt.js";
+import { attachOrgRelay } from "./relay.js";
 import { registerStorybookConnector } from "./connectors/storybook.js";
 import { registerGithubPrConnector } from "./connectors/github.js";
 import { registerCmsConnector } from "./connectors/cms.js";
@@ -46,7 +57,7 @@ registerStorybookConnector({});
 registerGithubPrConnector({});
 registerCmsConnector({});
 
-const REPEATABLE = new Set(["import", "i", "glob", "g", "output", "o", "mode"]);
+const REPEATABLE = new Set(["import", "i", "glob", "g", "output", "o", "mode", "relay"]);
 
 function parseArgs(argv) {
   const args = { _: [] };
@@ -89,10 +100,11 @@ Usage:
   token-to-css snapshot <input.json> [-o snap.json]
   token-to-css history <snap-a.json> <snap-b.json> [snap-c.json ...]
   token-to-css sync <input.json> [options]
-  token-to-css serve <input.json> [--port 4173] [--playground] [--editor] [--registry]
+  token-to-css serve <input.json> [--port 4173] [--playground] [--editor] [--registry] [--relay <peer-url>]
   token-to-css migrate <input.json> --from <path> --to <path> [--codemod <dir>] [--dry-run]
   token-to-css migrate <input.json> --deprecated [--codemod <dir>]
   token-to-css federate <org.manifest.json> [-o <output>] [--lint] [--team <name>] [--adopt <dir>]
+  token-to-css federate <fed.manifest.json> [--org <name>] [--adopt <dir>]   (cross-org, v11)
   token-to-css govern <input.json> [--version <semver>] [--deprecate <path> --replaced-by <path>]
   token-to-css adopt <tokens.json> <sources...> [--fix] [--report] [--registry] [--snapshots <file>] [--max-distance 0.1]
   token-to-css mcp <tokens.json> [--serve-url <url>]
@@ -128,7 +140,8 @@ Options:
   --playground         With serve: host the live kit preview + "propose change"
   --editor             With serve: serve the visual token editor at /editor (default on)
   --port <n>           Port for --serve (default: 4173)
-  --approve            With serve: require approval for POST /tokens (change-request mode)
+   --approve            With serve: require approval for POST /tokens (change-request mode)
+   --org <name>         With serve: this server's org id (org-scoped auth tokens)
   --from <path>        With migrate: source token path to rename
   --to <path>          With migrate: target token path for rename
   --codemod <dir>      With migrate: write codemod JSON to directory
@@ -136,6 +149,8 @@ Options:
   --deprecated         With migrate: generate codemods for all deprecated tokens
   --team <name>        With federate: filter to a specific team
   --lint               With federate: run lint across all teams
+  --org <name>         With federate (cross-org): emit/rollup a single org, or all when omitted
+  --lock <file>        With federate: check cross-org consumer lockfiles against published packages
   --version <semver>   With govern: set version on all tokens
   --deprecate <path>   With govern: mark a token as deprecated
   --replaced-by <path> With govern: replacement for deprecated token
@@ -145,7 +160,9 @@ Options:
   --max-distance <n>   With adopt: OKLCH nearest-match threshold (default 0.1)
   --src <file>         With adopt: extra consumer source file/glob (repeatable)
   --serve-url <url>    With mcp: point change-request creation at a running serve instance
-  --canary <file>      With serve: enable a canary release channel from a token file
+   --canary <file>      With serve: enable a canary release channel from a token file
+   --relay <url>        With serve: subscribe to a peer org's serve instance; remote
+                       changes arrive as change-requests (v11 cross-org relay)
   --changelog <file>   With release: prepend the generated changelog section to a file
   --checkpoints <dir>  With bisect: directory of ordered snapshot .json checkpoints
   -n, --no-validate     Skip token validation
@@ -1027,8 +1044,27 @@ export function run(argv = process.argv.slice(2)) {
         auth: options.auth,
         approve: options.approve,
         channels: args.canary ? { canary: readTokensFile(args.canary) } : undefined,
+        org: args.org || null,
         streamUrl: "/events",
       });
+      // v11.0 cross-org relay: subscribe to peer org serve instances; remote
+      // updates arrive as pending change-requests (never direct writes).
+      if (args.relay) {
+        const peers = collect(args.relay);
+        const relay = attachOrgRelay({
+          selfUrl: `http://localhost:${options.port}`,
+          peerUrls: peers,
+          token: args["relay-token"] || null,
+          origin: args.org || null,
+          getCurrentTree: server.getSourceTree,
+        });
+        console.error(`relay: linked to ${peers.join(", ")} (remote edits arrive as change-requests)`);
+        const origCloseAll = server.closeAll.bind(server);
+        server.closeAll = () => {
+          relay.stop();
+          origCloseAll();
+        };
+      }
       server.listen(options.port, () =>
         console.error(
           `token-to-css serve listening on http://localhost:${options.port}`
@@ -1132,6 +1168,90 @@ export function run(argv = process.argv.slice(2)) {
         return 1;
       }
       const manifestPath = resolve(process.cwd(), input);
+
+      // v11.0 cross-org federation: a manifest with an `orgs` key composes
+      // whole org manifests (local paths or published token packages).
+      const rawManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      if (rawManifest && rawManifest.orgs) {
+        const fed = validateFederatedManifest(rawManifest, manifestPath);
+        const { merged, orgTrees, origins } = resolveFederatedTree(fed);
+
+        if (args.lock) {
+          const lock = readTokensFile(args.lock);
+          const pkgName = lock.package;
+          const dir =
+            (fed.orgs &&
+              Object.values(fed.orgs).find((m) => m.packages && m.packages[pkgName])
+                ?.packages[pkgName]) ||
+            null;
+          if (!dir) {
+            console.error(`error: package "${pkgName}" is not declared in any org's "packages" map`);
+            process.exitCode = 1;
+            return 1;
+          }
+          const res = analyzeCrossOrgLock(lock, dir);
+          console.log(
+            `cross-org lockfile ${lock.name || "<unnamed>"} pinned ${lock.range || "*"} on ${pkgName}: ${res.prevVersion} -> ${res.nextVersion}`
+          );
+          console.log(`  in range: ${res.inRange}  ok: ${res.ok}`);
+          for (const b of res.breaking) {
+            console.log(`  ${b.type}: ${b.path}${b.type === "changed" ? ` (${b.from} -> ${b.to})` : ""}`);
+          }
+          process.exitCode = res.ok ? 0 : 1;
+          return process.exitCode;
+        }
+
+        if (args.adopt) {
+          const adoptDir = resolve(process.cwd(), args.adopt);
+          const orgTeamTrees = {};
+          const sourcesByOrg = {};
+          for (const [org, orgManifest] of Object.entries(fed.orgs)) {
+            orgTeamTrees[org] = orgTrees[org].teamTrees;
+            sourcesByOrg[org] = {};
+            for (const team of Object.keys(orgManifest.teams)) {
+              const teamDir = joinPath(adoptDir, org, team);
+              const files = [];
+              try {
+                for (const f of expandGlob(joinPath(teamDir, "**", "*.{css,scss,ts,js,tsx,jsx}"))) {
+                  files.push({ file: f, text: readFileSync(resolve(process.cwd(), f), "utf8") });
+                }
+              } catch {
+                /* team has no consumer sources */
+              }
+              sourcesByOrg[org][team] = files;
+            }
+          }
+          const { orgs, combined } = computeFederatedAdoption(orgTeamTrees, sourcesByOrg);
+          console.log("cross-org adoption rollup:");
+          for (const [org, info] of Object.entries(orgs)) {
+            console.log(`  ${org}: ${info.org.score}% (adopted ${info.org.adopted}, hardcoded ${info.org.hardcoded})`);
+            for (const [team, tinfo] of Object.entries(info.teams)) {
+              console.log(`    ${org}/${team}: ${tinfo.score}% (adopted ${tinfo.adopted}, hardcoded ${tinfo.hardcoded})`);
+            }
+          }
+          console.log(`  combined: ${combined.score}% (adopted ${combined.adopted}, hardcoded ${combined.hardcoded})`);
+          return 0;
+        }
+
+        const orgFilter = args.org;
+        const outTree = orgFilter && orgTrees[orgFilter] ? orgTrees[orgFilter].merged : merged;
+        const format = options.format || "css";
+        const css = convert(outTree, { format, ...options });
+        const outPath = args.output || args.o;
+        if (outPath) {
+          writeFileSync(resolve(process.cwd(), outPath), css, "utf8");
+          console.error(`wrote ${outPath}`);
+        } else {
+          process.stdout.write(css);
+        }
+        if (args.verbose) {
+          for (const [p, o] of Object.entries(origins)) {
+            console.error(`  origin ${p}: ${o.org}/${o.team}`);
+          }
+        }
+        return 0;
+      }
+
       const manifest = buildOrgManifest(manifestPath);
 
       if (args.lint) {

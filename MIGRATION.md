@@ -119,6 +119,43 @@ before a v9.0):
 | ------- | ------------------- |
 | 8.0.0   | Universal Connector Hub: `registerConnector` SDK, `serve` connector endpoints (`/connectors`), Storybook / GitHub-PR / CMS connectors, `storybook`/`github`/`cms` output formats |
 
+## From 10.x to 11.0
+
+v11.0 is a **major** because it introduces the cross-org federation contracts:
+the remote-manifest schema, the server-to-server relay protocol, and the
+`org:team:canonical` registry format. Nothing from 1.x–10.x is removed —
+upgrading is drop-in.
+
+What changes and what is new:
+
+- **Org manifests gain an optional shape** (`src/federation.js`): a team entry
+  may now reference a published token package — `{ org, package, range }` —
+  and a manifest may carry a `packages` map (`name -> release directory`).
+  Manifests with only `{ path }` teams validate and resolve exactly as in v7.
+  Remote package teams default to priority `-1` (remote loses to local);
+  explicit `priority` still wins.
+- **`resolveOrgTree` returns more** (additive): `{ merged, teamTrees }` now
+  also includes `origins` (per-token `{ org, team }` provenance) and
+  `resolvedPackages` (per-team `{ name, version }`). Destructuring `merged`/
+  `teamTrees` as before is unaffected.
+- **New registry format v2** (`mergeOrgRegistries`): federated canonical names
+  are `org:team:canonical` and `toJSON()` emits `version: 2` entries with an
+  `org` field. The v7 `mergeRegistries` (`team:canonical`, `version: 1`) is
+  unchanged; `reverse` accepts both `:`-bearing and plain canonical names.
+- **`serve` gains routes and options** (additive): `POST /relay` (peer org →
+  pending change-request), `--org` / `options.org` identity, org-aware auth
+  (`createOrgAuth`; a foreign org's token is 403), and in-memory CR approval
+  when no `tokensPath` is set. Existing endpoints and the default open-server
+  behavior are unchanged.
+- **New `federate` behavior**: a manifest with an `orgs` key is treated as a
+  *federated* manifest (cross-org); the v7 single-org shape is detected
+  automatically. `--lock` and `--adopt`/`--org` flags are new; existing
+  `--lint`/`--team`/`-o` flags behave identically on single-org manifests.
+
+| Version | What you can now do |
+| ------- | ------------------- |
+| 11.0.0  | Cross-org federation: published token packages (`resolvePackage`), `org:team:canonical` registries (`mergeOrgRegistries`), server-to-server relay arriving as change-requests (`serve --relay`, `relayChange`, `attachOrgRelay`), org rooms & trust (`createOrgAuth`, `serve --org`), cross-org lockfile alerts (`analyzeCrossOrgLock`), cross-org adoption rollup (`computeFederatedAdoption`) |
+
 ## Stability guarantees (from 1.0.0)
 
 - **CLI flags** will not be removed or renamed except in a major version, and

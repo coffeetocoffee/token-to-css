@@ -48,8 +48,21 @@ import {
 } from "./connectors/cms.js";
 import { addVersionMarkers, getDeprecations, createChangeRequest, approveChangeRequest, rejectChangeRequest, applyChangeRequest } from "./governance.js";
 import { getImpactGraph, getTransitiveDependents, generateCodemod, applyCodemod, generateCSSCodemod } from "./migrate.js";
-import { buildOrgManifest, validateManifest, resolveOrgTree, lintOrg } from "./federation.js";
-import { createNamespacedAuth, createFlatNamespacedAuth, createNamespacedMiddleware } from "./namespaces.js";
+import {
+  buildOrgManifest,
+  validateManifest,
+  resolveOrgTree,
+  lintOrg,
+  listPackageVersions,
+  resolvePackage,
+  mergeOrgRegistries,
+  buildFederatedManifest,
+  validateFederatedManifest,
+  resolveFederatedTree,
+  analyzeCrossOrgLock,
+} from "./federation.js";
+import { createNamespacedAuth, createFlatNamespacedAuth, createNamespacedMiddleware, createOrgAuth, orgRoomKey } from "./namespaces.js";
+import { relayChange, attachOrgRelay, consumeSSE, handleRelayPost } from "./relay.js";
 import {
   buildValueIndex,
   lintConsumer,
@@ -121,7 +134,17 @@ export { applyReversedIntoSource, computeDrift, canSetPath } from "./sync.js";
 export { addVersionMarkers, getDeprecations, createChangeRequest, approveChangeRequest, rejectChangeRequest, applyChangeRequest } from "./governance.js";
 export { getImpactGraph, getTransitiveDependents, generateCodemod, applyCodemod, generateCSSCodemod } from "./migrate.js";
 export { buildOrgManifest, validateManifest, resolveOrgTree, lintOrg } from "./federation.js";
-export { createNamespacedAuth, createFlatNamespacedAuth, createNamespacedMiddleware } from "./namespaces.js";
+export {
+  listPackageVersions,
+  resolvePackage,
+  mergeOrgRegistries,
+  buildFederatedManifest,
+  validateFederatedManifest,
+  resolveFederatedTree,
+  analyzeCrossOrgLock,
+} from "./federation.js";
+export { createNamespacedAuth, createFlatNamespacedAuth, createNamespacedMiddleware, createOrgAuth, orgRoomKey } from "./namespaces.js";
+export { relayChange, attachOrgRelay, consumeSSE, handleRelayPost } from "./relay.js";
 export {
   buildValueIndex,
   lintConsumer,
@@ -130,6 +153,7 @@ export {
   storeSnapshot,
   loadSnapshots,
   computeOrgAdoption,
+  computeFederatedAdoption,
   scanSource,
 } from "./adopt.js";
 export { createMcpContext, handleMcpMessage } from "./mcp.js";

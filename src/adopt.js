@@ -316,3 +316,50 @@ export function computeOrgAdoption(manifest, resolveOrgTreeFn, sourcesByTeam) {
   };
   return { teams, org };
 }
+
+/**
+ * v11.0 cross-org adoption rollup: aggregate the v9 adoption score per org
+ * across a federated mesh, plus one combined score.
+ *
+ * `orgTeamTrees` is `{ [org]: { [team]: tokens } }`; `sourcesByOrg` is
+ * `{ [org]: { [team]: ConsumerSource[] } }`. Returns
+ * `{ orgs: { [org]: { teams, org } }, combined }`.
+ */
+export function computeFederatedAdoption(orgTeamTrees, sourcesByOrg) {
+  const orgs = {};
+  let adopted = 0;
+  let hardcoded = 0;
+  for (const [org, teamTrees] of Object.entries(orgTeamTrees || {})) {
+    const teams = {};
+    let orgAdopted = 0;
+    let orgHardcoded = 0;
+    for (const [team, sources] of Object.entries(
+      (sourcesByOrg && sourcesByOrg[org]) || {}
+    )) {
+      const info = computeAdoptionScore(teamTrees[team] || {}, sources);
+      teams[team] = info;
+      orgAdopted += info.adopted;
+      orgHardcoded += info.hardcoded;
+    }
+    const orgTotal = orgAdopted + orgHardcoded;
+    orgs[org] = {
+      teams,
+      org: {
+        score: orgTotal === 0 ? 100 : Math.round((orgAdopted / orgTotal) * 100),
+        adopted: orgAdopted,
+        hardcoded: orgHardcoded,
+        total: orgTotal,
+      },
+    };
+    adopted += orgAdopted;
+    hardcoded += orgHardcoded;
+  }
+  const total = adopted + hardcoded;
+  const combined = {
+    score: total === 0 ? 100 : Math.round((adopted / total) * 100),
+    adopted,
+    hardcoded,
+    total,
+  };
+  return { orgs, combined };
+}

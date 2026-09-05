@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![GitHub Release](https://img.shields.io/github/v/release/coffeetocoffee/token-to-css)](https://github.com/coffeetocoffee/token-to-css/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v10.5.0](https://img.shields.io/badge/phase-10.5.0%20%E2%80%94%20minor-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v11.0.0](https://img.shields.io/badge/phase-11.0.0%20%E2%80%94%20cross--org%20federation-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 ## Install
@@ -442,6 +442,97 @@ The lint rule warns when a non-deprecated token references a deprecated token:
 ```bash
 token-to-css lint tokens.json
 # warning: [deprecated-in-use] token "color.button.bg" references deprecated token "color.old"
+```
+
+## Cross-org Federation (v11.0)
+
+v7 federated teams inside one org; v11 extends the mesh across **org
+boundaries**. The unit of sharing becomes a **release**, not a file: orgs
+compose each other's published, versioned token packages without merging
+source.
+
+### Published token packages
+
+An org publishes release snapshots (one `<version>.json` per release — the v10
+`snapshot` format) into a package directory; consumers reference it by semver
+range:
+
+```json
+{
+  "name": "my-org",
+  "packages": { "@acme/tokens": "./registry/acme-tokens" },
+  "teams": {
+    "acme": { "org": "acme", "package": "@acme/tokens", "range": "^2.0" },
+    "local": { "path": "./tokens.json", "priority": 0 }
+  }
+}
+```
+
+```bash
+token-to-css federate my-org.manifest.json -o merged.css
+```
+
+`^2.0` picks the newest in-range release. Remote package teams default to
+priority `-1`, so **remote loses to local**.
+
+### Cross-org lockfiles & breaking alerts
+
+```bash
+token-to-css federate fed.manifest.json --lock lockfile.json
+# cross-org lockfile app pinned ^2.3 on @acme/tokens: 2.3.0 -> 3.0.0
+#   in range: false  ok: false
+#   removed: color-old
+```
+
+### Server-to-server relay (the federated mesh)
+
+Each org runs its own `serve`; peers are linked with `--relay` (repeatable).
+A remote change arrives as a **pending change-request** — never a direct
+write. Local policy (approve/reject) decides:
+
+```bash
+# org A
+token-to-css serve acme/tokens.json --port 4201 --org acme
+# org B subscribes to A (and any other peers)
+token-to-css serve globex/tokens.json --port 4202 --org globex \
+  --relay http://localhost:4201
+# an edit on A lands on B as a pending CR: approve it with
+# POST /change-requests/<id>/approve — B's source stays authoritative.
+```
+
+Idempotent by construction: a re-broadcast of a tree B already holds is a
+no-op, so the mesh cannot loop.
+
+### Org rooms & trust
+
+```js
+import { createOrgAuth } from "token-to-css";
+const auth = createOrgAuth({
+  tokens: {
+    "acme-write": { scope: "write", org: "acme", teams: ["*"] },
+    "globex-view": { scope: "read", org: "globex", teams: ["web"] },
+  },
+});
+createTokenServer({ tokensPath, org: "globex", auth, port: 4173 });
+```
+
+Org A's write token is rejected with 403 on org B's server. Merged trees carry
+provenance: `resolveOrgTree(...).origins["color.primary"]` names the org and
+team that introduced each value.
+
+### Lossless registries across orgs
+
+`mergeOrgRegistries` grows the v7 `team:canonical` prefix to
+**`org:team:canonical`**, so two orgs that both have `color.primary` keep
+distinct names and round-trips stay byte-for-byte lossless.
+
+### Cross-org adoption rollup
+
+```bash
+token-to-css federate fed.manifest.json --adopt ./consumers
+#   acme: 100% (adopted 12, hardcoded 0)
+#   globex: 82% (adopted 9, hardcoded 2)
+#   combined: 91% (adopted 21, hardcoded 2)
 ```
 
 ## Stability & SemVer

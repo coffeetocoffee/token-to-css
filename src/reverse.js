@@ -63,7 +63,9 @@ function extractBlocks(css) {
   return blocks;
 }
 
-const DECL_RE = /(--[\w-]+|\$[\w-]+)\s*:\s*([^;]+);/g;
+// v11.0: `:` is accepted inside names so federated registry canonicals
+// (`org:team:canonical`) survive the round-trip. Keep verbatim otherwise.
+const DECL_RE = /(--[\w:-]+|\$[\w-]+)\s*:\s*([^;]+);/g;
 
 function parseBody(body) {
   const out = [];

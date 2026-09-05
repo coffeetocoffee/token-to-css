@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [11.0.0] - 2026-09-05
+
+### Added — Cross-org Federation
+
+The unit of sharing stops being a file and becomes a **release**: separate
+orgs compose each other's *published, versioned* token packages into their own
+mesh without merging source files.
+
+- **Published token packages** (`src/federation.js`): a manifest team may
+  reference a package + semver range instead of a local path —
+  `{ org: "acme", package: "@acme/tokens", range: "^2.0" }` plus a `packages`
+  map pointing at release directories holding one `<version>.json` snapshot
+  per release (the v10 `snapshot`/`release` format). `resolvePackage` picks
+  the newest in-range release; `listPackageVersions` lists them. Remote
+  package teams default to priority `-1`, so **remote loses to local** under
+  the v7 priority rules.
+- **Cross-org lockfiles + breaking alerts**: `analyzeCrossOrgLock(lock,
+  registryDir)` runs the v10 lockfile check against a published package — a
+  consumer pinned `^2.x` fails a cross-org 3.0 release listing every affected
+  usage. CLI: `federate <fed.manifest.json> --lock <lockfile.json>`.
+- **Server-to-server relay** (`src/relay.js`): multiple `serve` instances (one
+  per org) link into a mesh — `serve --relay <peer-url>` (repeatable;
+  library: `attachOrgRelay`, one-shot `relayChange`, generic SSE helper
+  `consumeSSE`). Each org's source stays **authoritative**: a remote change
+  arrives as a pending **change-request** (`POST /relay`, tagged with the
+  remote origin), never a direct write. Approving folds it into local source
+  and re-broadcasts; declining leaves it untouched. Idempotent — a
+  re-broadcast of a held (approved or pending) tree is a no-op, so the relay
+  cannot loop. `serve` also gains `POST /change-requests/:id/approve` for
+  in-memory (no `tokensPath`) servers.
+- **Namespaced registries across orgs**: `mergeOrgRegistries({ org: { team:
+  registry } })` grows the v7 registry prefix to **`org:team:canonical`**, so
+  two orgs that both have `color.primary` keep distinct lossless names;
+  `reverse` accepts `:`-bearing canonical names, making
+  `reverse(convert(federatedTree, { registry }))` byte-for-byte lossless.
+  `ownerOf(canonical)` returns `{ org, team }`.
+- **Org rooms & trust**: `createOrgAuth` tokens carry `org` + scope +
+  teams; `createTokenServer({ org })` makes org identity part of the auth
+  gate (a foreign org's token is 403 — it can never mutate this org's source;
+  unknown tokens stay 401). `resolveOrgTree`/`resolveFederatedTree` return an
+  `origins` provenance map recording which **org introduced each merged
+  value**. `orgRoomKey(org, team)` names the `(org, team)` rooms.
+- **Cross-org adoption rollup**: `computeFederatedAdoption(orgTeamTrees,
+  sourcesByOrg)` aggregates the v9 adoption score per org plus a combined
+  score. CLI: `federate <fed.manifest.json> --adopt <dir>` scans
+  `<dir>/<org>/<team>/` and prints per-org, per-team and combined scores.
+- **Federated manifests**: `buildFederatedManifest` /
+  `validateFederatedManifest` compose whole org manifests (inline or by path)
+  under an `orgs` key; `resolveFederatedTree` resolves every org (v7 priority
+  rules inside each org, manifest key order across orgs). CLI `federate`
+  detects the `orgs` shape automatically and supports `--org <name>` to emit
+  a single org's merged tree.
+
+### Why major
+Introduces the remote-manifest schema, the server-to-server relay protocol
+(`POST /relay` + origin-tagged CRs), and the `org:team:canonical` registry
+format — new public contracts with no minor-grade surface. No existing API
+removed; `mergeRegistries` (v7) and all prior manifest shapes keep working.
+
 ## [10.5.0] - 2026-09-05
 
 ### Added — The Visual Token Editor

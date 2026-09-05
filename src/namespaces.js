@@ -65,3 +65,49 @@ export function createNamespacedMiddleware(authConfig, allowedTeams = []) {
     return scope;
   };
 }
+
+/**
+ * v11.0 org rooms & trust: create an org-aware auth resolver. Auth tokens
+ * carry an `org` in addition to scope + teams, and every mesh room is
+ * `(org, team)` — org A's write token is null (→ 403 on org B's server).
+ *
+ * ```json
+ * {
+ *   "tokens": {
+ *     "acme-write":   { "scope": "write", "org": "acme",   "teams": ["*"] },
+ *     "globex-view":  { "scope": "read",  "org": "globex", "teams": ["web"] }
+ *   }
+ * }
+ * ```
+ *
+ * Pass the result as `options.auth` together with `options.org` on
+ * `createTokenServer`; the server resolves `auth(token, org)`.
+ */
+export function createOrgAuth(authConfig) {
+  if (!authConfig || !authConfig.tokens) {
+    throw new Error("authConfig must have a 'tokens' object");
+  }
+  const tokenMap = authConfig.tokens;
+
+  function resolveOrgAuth(token, org = null, team = null) {
+    const entry = tokenMap[token];
+    if (!entry) return null;
+    const { scope, org: tokenOrg, teams } = entry;
+    if (!scope) return null;
+    if (tokenOrg && tokenOrg !== "*" && org && tokenOrg !== org) return null;
+    if (!team || !teams) return scope;
+    if (teams.includes("*") || teams.includes(team)) return scope;
+    return null;
+  }
+  // Marker consumed by createTokenServer: resolvers flagged orgAware receive
+  // `(token, org)` so a foreign org's token resolves to null.
+  resolveOrgAuth.orgAware = true;
+  return resolveOrgAuth;
+}
+
+/**
+ * v11.0 room key for the `(org, team)` room model, e.g. `acme/web`.
+ */
+export function orgRoomKey(org, team = null) {
+  return team ? `${org}/${team}` : org;
+}

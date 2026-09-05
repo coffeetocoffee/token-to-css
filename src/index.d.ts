@@ -195,6 +195,11 @@ export interface TokenServer extends import("node:http").Server {
   setTokens(tree: Tokens): void;
   snapshotTree(): Tokens;
   closeAll(): void;
+  /** v11.0: this server's org id (when created with the `org` option). */
+  org: string | null;
+  getSourceTree(): Tokens;
+  /** v11.0: relay a peer org's current tree in as a pending change-request. */
+  relay(peerUrl: string, options?: { token?: string | null; fetchImpl?: typeof fetch }): Promise<unknown>;
 }
 
 export function createTokenServer(options?: {
@@ -206,7 +211,11 @@ export function createTokenServer(options?: {
   editor?: boolean;
   registry?: boolean;
   streamUrl?: string;
-  auth?: ((token: string) => "read" | "write" | null) | Record<string, "read" | "write">;
+  /** v11.0 org rooms & trust: this server's org id. */
+  org?: string | null;
+  auth?:
+    | ((token: string, org?: string | null) => "read" | "write" | null)
+    | Record<string, "read" | "write">;
   approve?: boolean;
   channels?: { canary?: Tokens };
 }): TokenServer;
@@ -404,7 +413,11 @@ export function applyCodemod(tokens: Tokens, codemod: Codemod): { tree: Tokens; 
 export function generateCSSCodemod(css: string, registry: NameRegistry | null, options: { from: string; to: string }): { version: string; type: string; operations: Array<{ type: string; find: string; replace: string }> };
 
 export interface OrgManifestTeam {
-  path: string;
+  path?: string;
+  /** v11.0: remote package team. */
+  org?: string;
+  package?: string;
+  range?: string;
   priority: number;
   overrides: string[];
 }
@@ -413,13 +426,66 @@ export interface OrgManifest {
   name: string;
   version: string;
   teams: Record<string, OrgManifestTeam>;
+  /** v11.0: package name -> directory of `<version>.json` release snapshots. */
+  packages?: Record<string, string>;
   overrides: Record<string, { extends: string; strategy?: string }>;
 }
 
 export function buildOrgManifest(manifestPath: string): OrgManifest;
 export function validateManifest(manifest: object, basePath?: string): OrgManifest;
-export function resolveOrgTree(manifest: OrgManifest): { merged: Tokens; teamTrees: Record<string, Tokens> };
+export function resolveOrgTree(manifest: OrgManifest): {
+  merged: Tokens;
+  teamTrees: Record<string, Tokens>;
+  origins: Record<string, { org: string | null; team: string }>;
+  resolvedPackages: Record<string, { name: string; version: string }>;
+};
 export function lintOrg(manifest: OrgManifest, contract?: object): Record<string, { path: string; lint?: LintResult; contract?: true; error?: string }>;
+
+// --- v11.0: Cross-org Federation ---
+
+export function listPackageVersions(packagesDir: string, packageName?: string): string[];
+export function resolvePackage(ref: string | { package: string; range?: string }, options?: { packages?: Record<string, string>; registryDir?: string }): { name: string; version: string; tree: Tokens; path: string };
+
+export interface FederatedRegistry {
+  orgs: Set<string>;
+  canonicalOf(orgOrPath: string[] | string, teamOrPath?: string[] | string, maybePath?: string[]): string | null;
+  pathOf(canonical: string): string[] | null;
+  ownerOf(canonical: string): { org: string; team: string } | null;
+  has(canonical: string): boolean;
+  toJSON(): { version: number; names: { org: string; team: string; path: string; canonical: string }[] };
+}
+
+export function mergeOrgRegistries(orgRegistries: Record<string, Record<string, NameRegistry> | NameRegistry>): FederatedRegistry;
+
+export interface FederatedManifest {
+  name: string;
+  version: string;
+  orgs: Record<string, OrgManifest>;
+}
+
+export function validateFederatedManifest(manifest: object, basePath?: string): FederatedManifest;
+export function buildFederatedManifest(manifestPath: string): FederatedManifest;
+export function resolveFederatedTree(fedManifest: FederatedManifest): {
+  merged: Tokens;
+  orgTrees: Record<string, ReturnType<typeof resolveOrgTree>>;
+  origins: Record<string, { org: string; team: string }>;
+};
+
+export interface CrossOrgLockfile extends ConsumerLockfile {
+  package: string;
+  version?: string;
+}
+
+export function analyzeCrossOrgLock(lock: CrossOrgLockfile, registryDir: string, options?: { nextVersion?: string }): {
+  package: string;
+  prevVersion: string;
+  nextVersion: string;
+  inRange: boolean;
+  ok: boolean;
+  breaking: LockfileAlert[];
+  range: string;
+  version: string;
+};
 
 export interface MergedRegistry {
   canonicalOf(path: string[]): string | null;
@@ -434,6 +500,19 @@ export type NamespacedAuthResolver = (token: string, team?: string) => "read" | 
 export function createNamespacedAuth(authConfig: { tokens: Record<string, { scope: string; teams: string[] }> }): NamespacedAuthResolver;
 export function createFlatNamespacedAuth(flatMap: Record<string, string>): NamespacedAuthResolver;
 export function createNamespacedMiddleware(authConfig: { tokens: Record<string, { scope: string; teams: string[] }> }, allowedTeams?: string[]): NamespacedAuthResolver;
+
+// --- v11.0: Org rooms & trust ---
+
+export type OrgAuthResolver = (token: string, org?: string | null, team?: string | null) => "read" | "write" | null;
+export function createOrgAuth(authConfig: { tokens: Record<string, { scope: string; org?: string; teams?: string[] }> }): OrgAuthResolver;
+export function orgRoomKey(org: string, team?: string | null): string;
+
+// --- v11.0: Server-to-server relay ---
+
+export function relayChange(options: { fromUrl: string; toUrl: string; token?: string | null; origin?: string | null; fetchImpl?: typeof fetch }): Promise<{ status: number; ok?: boolean; noop?: boolean; pending?: boolean; cr?: { id: string; status: string; origin: string | null } }>;
+export function attachOrgRelay(options: { selfUrl: string; peerUrls: string[]; token?: string | null; origin?: string | null; fetchImpl?: typeof fetch; getCurrentTree?: () => Tokens | null }): { stop(): void };
+export function consumeSSE(url: string, onEvent: (event: unknown) => void, options?: { signal?: AbortSignal | null; fetchImpl?: typeof fetch }): { stop(): void };
+export function handleRelayPost(serverState: { sourceTree: Tokens; changeRequests: unknown[]; broadcast: (event: unknown) => void }, origin: string | null, tree: Tokens): { ok: boolean; noop?: boolean; pending?: boolean; cr?: { id: string; status: string; origin: string | null } };
 
 // --- v9.0: The Adoption Engine ---
 
@@ -485,6 +564,9 @@ export function storeSnapshot(path: string, info: AdoptionScore): Array<{ date: 
 export function loadSnapshots(path: string): Array<{ date: string } & AdoptionScore>;
 
 export function computeOrgAdoption(manifest: OrgManifest, resolveOrgTreeFn: (m: OrgManifest) => { merged: Tokens; teamTrees: Record<string, Tokens> }, sourcesByTeam: Record<string, ConsumerSource[]>): { teams: Record<string, AdoptionScore>; org: AdoptionScore };
+
+/** v11.0: cross-org adoption rollup. */
+export function computeFederatedAdoption(orgTeamTrees: Record<string, Record<string, Tokens>>, sourcesByOrg: Record<string, Record<string, ConsumerSource[]>>): { orgs: Record<string, { teams: Record<string, AdoptionScore>; org: AdoptionScore }>; combined: AdoptionScore };
 
 export interface McpContext {
   tokens: Tokens;

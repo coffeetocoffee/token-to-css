@@ -15,6 +15,7 @@ import { buildExplorerHTML } from "./docs.js";
 import { buildEditorHTML, previewEdit } from "./editor.js";
 import { createChangeRequest, approveChangeRequest, rejectChangeRequest, applyChangeRequest } from "./governance.js";
 import { getConnector, listConnectors } from "./connect.js";
+import { handleRelayPost, relayChange } from "./relay.js";
 
 function readJSON(p) {
   return JSON.parse(readFileSync(p, "utf8"));
@@ -134,6 +135,9 @@ document.getElementById("propose").addEventListener("click",async ()=>{
 export function createTokenServer(options = {}) {
   const tokensPath = options.tokensPath ? resolvePath(options.tokensPath) : null;
   const auth = options.auth || null;
+  // v11.0 org trust: when `options.org` is set, auth resolvers are invoked as
+  // `auth(token, org)` so org-scoped tokens only resolve for their own org.
+  const selfOrg = options.org || null;
   const useRegistry = Boolean(options.registry);
   const approvalMode = Boolean(options.approve);
   let sourceTree = options.tokens ? structuredClone(options.tokens) : null;
@@ -211,11 +215,28 @@ export function createTokenServer(options = {}) {
     const q = url.searchParams;
 
     // Auth / scoping gate (v6.0). Open server when no `auth` configured.
+    // v11.0: with `options.org` set, org-aware resolvers (`createOrgAuth`)
+    // receive `(token, org)` so org rooms are enforced — a foreign org's
+    // token resolves to null (401).
     if (auth) {
       const header = req.headers["authorization"] || "";
       const m = /^Bearer\s+(.+)$/i.exec(header);
       const token = m ? m[1].trim() : null;
-      const scope = token ? (typeof auth === "function" ? auth(token) : auth[token] || null) : null;
+      const scope = token
+        ? typeof auth === "function"
+          ? selfOrg && auth.orgAware
+            ? auth(token, selfOrg)
+            : auth(token)
+          : auth[token] || null
+        : null;
+      // v11.0 org trust: a token that is valid for *some* org but not this
+      // server's org is forbidden (403), not unauthorized (401) — org A's
+      // write token can never mutate org B's source.
+      if (!scope && selfOrg && typeof auth === "function" && auth.orgAware && token && auth(token)) {
+        res.writeHead(403, { "content-type": "text/plain" });
+        res.end(`forbidden: token is not valid for org "${selfOrg}"`);
+        return;
+      }
       if (!scope) {
         res.writeHead(401, { "content-type": "text/plain" });
         res.end("unauthorized: missing or invalid bearer token");
@@ -429,12 +450,14 @@ export function createTokenServer(options = {}) {
       }
       try {
         approveChangeRequest(cr);
+        const { tree } = applyChangeRequest(sourceTree, cr);
         if (tokensPath) {
-          const { tree } = applyChangeRequest(sourceTree, cr);
           writeFileSync(tokensPath, `${JSON.stringify(tree, null, 2)}\n`, "utf8");
-          sourceTree = tree;
-          pushUpdate();
         }
+        sourceTree = tree;
+        channelTrees.stable = sourceTree;
+        if (registry) registry = buildNameRegistry(sourceTree);
+        pushUpdate();
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: true, cr }));
       } catch (err) {
@@ -460,6 +483,42 @@ export function createTokenServer(options = {}) {
           rejectChangeRequest(cr, reason);
           res.writeHead(200, { "content-type": "application/json" });
           res.end(JSON.stringify({ ok: true, cr }));
+        } catch (err) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+      });
+      return;
+    }
+
+    // Cross-org relay (v11.0): a peer org's serve instance POSTs its tree
+    // here; it lands as a *pending change-request* tagged with the remote
+    // org — never a direct write. Applying it requires the v7 approve flow
+    // (POST /change-requests/:id/approve), so local source stays
+    // authoritative. Idempotent: a re-broadcast of an identical tree is a
+    // no-op and does not open a CR.
+    if (req.method === "POST" && path === "/relay") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const { origin, tree } = JSON.parse(body);
+          if (!tree || typeof tree !== "object") {
+            res.writeHead(400, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: "relay body must be { origin, tree }" }));
+            return;
+          }
+          const result = handleRelayPost(
+            {
+              sourceTree,
+              changeRequests,
+              broadcast: (event) => broadcastChannel(event.channel || "stable", event),
+            },
+            origin,
+            tree
+          );
+          res.writeHead(result.ok ? 200 : 400, { "content-type": "application/json" });
+          res.end(JSON.stringify(result));
         } catch (err) {
           res.writeHead(400, { "content-type": "application/json" });
           res.end(JSON.stringify({ ok: false, error: err.message }));
@@ -624,6 +683,17 @@ export function createTokenServer(options = {}) {
   server.setTokens = setTokens;
   server.snapshotTree = snapshotTree;
   server.changeRequests = changeRequests;
+  // v11.0 org identity + helpers for the relay mesh.
+  server.org = selfOrg;
+  server.getSourceTree = () => sourceTree;
+  server.relay = (peerUrl, { token = null, fetchImpl = globalThis.fetch } = {}) =>
+    relayChange({
+      fromUrl: peerUrl,
+      toUrl: `http://localhost:${options.port || 4173}`,
+      token,
+      origin: peerUrl,
+      fetchImpl,
+    });
   server.closeAll = () => {
     if (watcher) watcher.close();
     for (const c of clients) c.end();
