@@ -89,7 +89,7 @@ Usage:
   token-to-css snapshot <input.json> [-o snap.json]
   token-to-css history <snap-a.json> <snap-b.json> [snap-c.json ...]
   token-to-css sync <input.json> [options]
-  token-to-css serve <input.json> [--port 4173] [--playground] [--registry]
+  token-to-css serve <input.json> [--port 4173] [--playground] [--editor] [--registry]
   token-to-css migrate <input.json> --from <path> --to <path> [--codemod <dir>] [--dry-run]
   token-to-css migrate <input.json> --deprecated [--codemod <dir>]
   token-to-css federate <org.manifest.json> [-o <output>] [--lint] [--team <name>] [--adopt <dir>]
@@ -126,6 +126,7 @@ Options:
   --json                With lint: print issues as JSON
   --serve              Serve generated outputs on a local HTTP server (with -w)
   --playground         With serve: host the live kit preview + "propose change"
+  --editor             With serve: serve the visual token editor at /editor (default on)
   --port <n>           Port for --serve (default: 4173)
   --approve            With serve: require approval for POST /tokens (change-request mode)
   --from <path>        With migrate: source token path to rename
@@ -681,6 +682,7 @@ export function run(argv = process.argv.slice(2)) {
   options.serve = Boolean(args.serve);
   options.registry = Boolean(args.registry);
   options.playground = Boolean(args.playground);
+  options.editor = args.editor !== "false";
   options.auth = null;
   if (args.auth || config.auth) {
     const authPath = resolve(process.cwd(), args.auth || config.auth);
@@ -1020,6 +1022,7 @@ export function run(argv = process.argv.slice(2)) {
         port: options.port,
         watch: true,
         playground: options.playground,
+        editor: options.editor,
         registry: options.registry,
         auth: options.auth,
         approve: options.approve,

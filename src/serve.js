@@ -12,6 +12,7 @@ import { applyReversedIntoSource } from "./sync.js";
 import { deepMerge } from "./merge.js";
 import { buildClientJS } from "./client.js";
 import { buildExplorerHTML } from "./docs.js";
+import { buildEditorHTML, previewEdit } from "./editor.js";
 import { createChangeRequest, approveChangeRequest, rejectChangeRequest, applyChangeRequest } from "./governance.js";
 import { getConnector, listConnectors } from "./connect.js";
 
@@ -371,6 +372,43 @@ export function createTokenServer(options = {}) {
         : buildExplorerHTML(sourceTree, { ...options, files: [] });
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(html);
+      return;
+    }
+
+    // Visual token editor (v10.5). `GET /editor` serves the editable explorer;
+    // `POST /editor/preview` is the diff-before-commit dry-run (validation +
+    // diff + semver verdict + impact + codemod). Commits reuse the existing
+    // `POST /tokens` write scope — no new protocol.
+    if (req.method === "GET" && path === "/editor") {
+      if (options.editor === false) {
+        res.writeHead(404, { "content-type": "text/plain" });
+        res.end("not found");
+        return;
+      }
+      const html = buildEditorHTML(sourceTree, {
+        canary: Boolean(channelTrees.canary),
+        auth: Boolean(auth),
+        editable: auth ? undefined : true,
+      });
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(html);
+      return;
+    }
+
+    if (req.method === "POST" && path === "/editor/preview") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const edit = body ? JSON.parse(body) : {};
+          const result = previewEdit(sourceTree, edit);
+          res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify(result, null, 2));
+        } catch (err) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: false, errors: [{ code: "bad-request", message: err.message }] }));
+        }
+      });
       return;
     }
 

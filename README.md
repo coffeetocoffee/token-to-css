@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![GitHub Release](https://img.shields.io/github/v/release/coffeetocoffee/token-to-css)](https://github.com/coffeetocoffee/token-to-css/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v10.0.0](https://img.shields.io/badge/phase-10.0.0%20%E2%80%94%20major-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v10.5.0](https://img.shields.io/badge/phase-10.5.0%20%E2%80%94%20minor-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 ## Install
@@ -30,7 +30,8 @@ token-to-css reverse <file.css> [-o tokens.json] [--registry names.json]
 token-to-css snapshot <input.json> [-o snap.json]
 token-to-css history <snap-a.json> <snap-b.json> [snap-c.json ...]
 token-to-css sync <input.json> [options]   # generate, then watch + reverse-sync edits back
-token-to-css serve <input.json> [--port 4173] [--playground] [--registry]   # live Token Server mesh
+token-to-css serve <input.json> [--port 4173] [--playground] [--editor] [--registry]   # live Token Server mesh
+token-to-css serve <input.json>            # visual token editor at http://localhost:4173/editor
 token-to-css adopt <tokens.json> <sources...> [--fix] [--report] [--snapshots <file>]   # consumer lint + codemod
 token-to-css mcp <tokens.json> [--serve-url <url>]   # Model Context Protocol server
 token-to-css release <prev.json> <next.json> [--version x.y.z] [--changelog <file>]   # semver bump + changelog
@@ -62,6 +63,7 @@ Options:
   --out-dir <dir>       Output directory for the kit subcommand (default: dist)
   --registry            Emit/consume a canonical name registry (lossless round-trip)
   --playground         With serve: host the live kit preview + "propose change"
+  --editor[=false]     With serve: visual token editor at /editor (default on)
   --json                With lint: print issues as JSON
   --serve               Serve generated outputs on a local HTTP server (with -w)
   --port <n>            Port for --serve (default: 4173)
@@ -285,6 +287,40 @@ source file is never mutated — stakeholders can flip themes but not break sour
 renders a Wikipedia-style page: each token with its resolved value, a swatch, and
 the reverse dependency graph ("used by") so you can see blast radius before
 editing. `lint` also flags `empty-group`s (groups with no token leaves).
+
+## Visual Token Editor (v10.5)
+
+The explorer page, upgraded to be **editable** — the long-deferred editor ships
+as a playground upgrade served by `serve`, reusing the existing governed write
+scope (no new protocol):
+
+```bash
+token-to-css serve tokens.json --port 4173
+# open http://localhost:4173/editor
+```
+
+- **Type-aware editing.** Colors get a picker (bound to the color engine —
+  OKLCH/Lab values round-trip as-is), dimensions get ±10% steppers, everything
+  else is text. Deprecated tokens show their `replacedBy` path and prefill the
+  edit with `{replacedBy}`.
+- **Scoped editing.** Pick a mode/brand and the edit lands in `modes.<m>` /
+  `brands.<b>` — a token with no override there becomes a new, flagged override.
+- **Reference-aware inputs.** Unknown `{refs}` and unparseable colors are
+  rejected before commit, with the valid token list offered.
+- **Diff-before-commit.** `review` shows the resolved diff (`+/-/~`) and the
+  semver verdict from `classifyRelease`; a major (removal, e.g. a rename) is
+  blocked unless explicitly confirmed.
+- **Governance-aware.** Every preview carries the v7 impact graph (direct +
+  transitive dependents). A rename hands off the ready-to-run v7 codemod —
+  the token-file change is only half the job.
+- **Write-path parity.** Commits POST to the existing `POST /tokens` write
+  scope: read-only tokens are rejected 403, `--approve` queues a change-request
+  (202), `--canary` targets the canary channel until `POST /promote`.
+- **Live preview.** Draft values apply to the preview pane on every keystroke —
+  the source file is untouched until commit; "cancel edits" restores it.
+
+Library surface: `validateEditValue`, `buildEditCommit`, `editImpact`,
+`previewEdit`, `buildEditorHTML` (from `token-to-css/editor.js` or the root).
 
 ## Universal Connector Hub (v8.0)
 

@@ -134,6 +134,13 @@ export {
 } from "./adopt.js";
 export { createMcpContext, handleMcpMessage } from "./mcp.js";
 export {
+  validateEditValue,
+  buildEditCommit,
+  editImpact,
+  previewEdit,
+  buildEditorHTML,
+} from "./editor.js";
+export {
   bumpVersion,
   classifyRelease,
   generateChangelog,

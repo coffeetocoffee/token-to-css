@@ -203,12 +203,59 @@ export function createTokenServer(options?: {
   port?: number;
   watch?: boolean;
   playground?: boolean;
+  editor?: boolean;
   registry?: boolean;
   streamUrl?: string;
   auth?: ((token: string) => "read" | "write" | null) | Record<string, "read" | "write">;
   approve?: boolean;
   channels?: { canary?: Tokens };
 }): TokenServer;
+
+// --- v10.5: Visual Token Editor ---
+
+export interface EditError {
+  code: "empty-value" | "unknown-ref" | "bad-color" | "bad-rename" | "commit-failed" | "resolve-failed" | "bad-request";
+  message?: string;
+  ref?: string;
+  valid?: string[];
+}
+
+export interface EditCommitChange {
+  type: "value" | "rename";
+  path?: string;
+  from?: string | null;
+  to?: string | null;
+  scope: string;
+  override?: boolean;
+  creates?: boolean;
+  operations?: number;
+}
+
+export interface TokenEdit {
+  path?: string;
+  value?: string;
+  mode?: string;
+  brand?: string;
+  rename?: { from: string; to: string };
+  confirmed?: boolean;
+}
+
+export interface EditPreview {
+  ok: boolean;
+  errors: EditError[];
+  changed: EditCommitChange | null;
+  diff: { added: Record<string, string>; removed: Record<string, string>; changed: Record<string, { from: string; to: string }> };
+  verdict: { bump: "major" | "minor" | "patch" | "none"; removed: string[]; changed: string[]; added: string[] };
+  blocked: boolean;
+  impact: { direct: string[]; transitive: string[]; deprecated: boolean; replacedBy: string | null; value: string } | null;
+  codemod: object | null;
+}
+
+export function validateEditValue(value: string, tree: Tokens): EditError[];
+export function buildEditCommit(source: Tokens, edit: TokenEdit): { source: Tokens; changed: EditCommitChange };
+export function editImpact(source: Tokens, path: string): EditPreview["impact"];
+export function previewEdit(source: Tokens, edit: TokenEdit): EditPreview;
+export function buildEditorHTML(tokens: Tokens, options?: { editable?: boolean; canary?: boolean; auth?: boolean }): string;
 
 export function resolveTree(tokens: Tokens, options?: { mode?: string; brand?: string }): Tokens;
 

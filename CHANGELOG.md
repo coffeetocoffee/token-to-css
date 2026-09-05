@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [10.5.0] - 2026-09-05
+
+### Added — The Visual Token Editor
+
+- **Editable explorer** (`src/editor.js`): `buildEditorHTML` renders the token
+  explorer with inline, type-aware editors — a color picker (bound to the
+  existing color engine), ±10% steppers for dimensions, and plain text for
+  everything else. Deprecated tokens render their `replacedBy` path and prefill
+  the edit with `{replacedBy}`. Served by `serve` at `GET /editor` (on by
+  default; `serve --editor=false` disables).
+- **Scoped editing (modes/brands)**: `buildEditCommit(source, edit)` applies a
+  value edit to the right subtree — with `mode`/`brand` the write lands in
+  `modes.<m>` / `brands.<b>` (flagged as a new `override` when the scope subtree
+  has no such token yet), never silently in the base tree. W3C `$value` leaves
+  are updated in place.
+- **Reference-aware inputs**: `validateEditValue(value, tree)` validates every
+  `{dotted.path}` reference (unknown refs are rejected with the valid token
+  list offered) and rejects unparseable color literals.
+- **Diff-before-commit**: `previewEdit(source, edit)` is the dry-run — the
+  resolved `diffTokens` diff (`+added / -removed / ~changed`), the v10
+  `classifyRelease` semver verdict, and `blocked: true` when the verdict is
+  major (a removal) unless the edit is explicitly `confirmed`.
+- **Governance-aware impact**: `editImpact(source, path)` reports direct +
+  transitive dependents (v7 impact graph) and the token's deprecation state so
+  the editor shows the blast radius before commit.
+- **Codemod hand-off**: a rename preview carries the ready-to-run v7 codemod
+  (rename + update-ref operations) and the CLI line
+  `token-to-css migrate --from <path> --to <path> --codemod ./app`.
+- **Editor server routes** (`src/serve.js`): `GET /editor` serves the editor;
+  `POST /editor/preview` returns the dry-run payload. Commits reuse the
+  existing `POST /tokens` write scope (403 for read-only tokens, 202 +
+  change-request with `--approve`, `?channel=canary` for canary-first editing)
+  — no new protocol.
+- **Canary-first editing + live preview**: the editor's channel picker targets
+  the v10 canary channel (stable subscribers see nothing until `POST /promote`);
+  a draft CSS layer applies edited values to the preview pane on every
+  keystroke, with the source file untouched until commit.
+- CLI: `serve --editor[=false]` flag; `createTokenServer` accepts
+  `editor: boolean`.
+- 30 new tests (`test/v10.5.test.js`; 233 total).
+
 ## [10.0.0] - 2026-09-04
 
 ### Added — The Versioned Design System
@@ -476,7 +517,10 @@ connectors graduate it.)
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v8.0.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v10.5.0...HEAD
+[10.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v10.0.0...v10.5.0
+[10.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v9.0.0...v10.0.0
+[9.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v8.0.0...v9.0.0
 [8.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v7.0.0...v8.0.0
 [7.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v6.0.0...v7.0.0
 [6.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v5.0.0...v6.0.0
