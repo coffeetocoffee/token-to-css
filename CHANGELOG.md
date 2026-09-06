@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [12.1.0] - 2026-09-05
+
+### Added — VS Code extension marketplace release
+
+- `packages/vscode` is now a publishable, marketplace-listed extension:
+  - `repository`, `galleryBanner`, and `keywords` metadata; bundled
+    `LICENSE` + `CHANGELOG.md`; `.vscodeignore` keeps the VSIX lean.
+  - CI (`vscode.yml`) builds the `.vsix` on every push/PR and, on a `v*` tag,
+    publishes to the VS Code Marketplace + Open VSX. `@vscode/vsce` and `ovsx`
+    run on demand in CI — neither is committed, so the extension stays
+    zero-dep.
+- No core changes; the compiler, server, and MCP surface are untouched. Root
+  package remains `12.0.0` (the extension is versioned independently as
+  `12.1.0`).
+- Full suite: 294 tests still pass.
+
 ## [12.0.0] - 2026-09-05
 
 ### Added — VS Code Extension & Hosted Playground

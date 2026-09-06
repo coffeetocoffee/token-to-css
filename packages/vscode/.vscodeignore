@@ -1,0 +1,17 @@
+# Tests and fixtures — not shipped in the VSIX
+test/**
+**/*.test.js
+**/test/**
+
+# Git / build cruft
+.git/**
+.github/**
+.vscode/**
+node_modules/**
+*.vsix
+package-lock.json
+.yarnrc
+**.map
+
+# No bundled compiler — the extension spawns the installed CLI
+.tgz

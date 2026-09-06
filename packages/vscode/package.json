@@ -2,10 +2,32 @@
   "name": "token-to-css-vscode",
   "displayName": "token-to-css — design tokens",
   "description": "Hover, completion, and adoption diagnostics for design tokens. A thin client over `token-to-css mcp` — no bundled compiler.",
-  "version": "12.0.0",
+  "version": "12.1.0",
   "publisher": "coffeetocoffee",
   "license": "MIT",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/coffeetocoffee/token-to-css.git",
+    "directory": "packages/vscode"
+  },
+  "homepage": "https://github.com/coffeetocoffee/token-to-css#readme",
+  "bugs": {
+    "url": "https://github.com/coffeetocoffee/token-to-css/issues"
+  },
+  "galleryBanner": {
+    "color": "#18181b",
+    "theme": "dark"
+  },
+  "keywords": [
+    "design-tokens",
+    "css",
+    "tokens",
+    "theme",
+    "design-system",
+    "token-to-css",
+    "mcp"
+  ],
   "type": "module",
   "main": "./src/extension.js",
   "engines": {

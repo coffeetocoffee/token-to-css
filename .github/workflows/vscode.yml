@@ -1,0 +1,63 @@
+name: Publish VS Code extension
+
+# v12.1 — Marketplace release pipeline for packages/vscode.
+# Builds (headers smoke) on push/PR; publishes the .vsix to the VS Code
+# Marketplace and Open VSX on a `vscode-v*` tag (the extension is versioned
+# independently of the npm packages, so it uses its own tag prefix and never
+# collides with the npm `v*` flow). The extension stays zero-dep —
+# `@vscode/vsce` and `ovsx` are fetched on demand in CI.
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - "vscode-v*"
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install (link workspaces so @token-to-css/* resolve)
+        run: npm install
+      - name: Test (full suite incl. headless extension tests)
+        run: npm test
+      - name: Package the extension (vsce)
+        run: npx --yes @vscode/vsce package --no-dependencies --out token-to-css.vsix
+        working-directory: packages/vscode
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: token-to-css-vscode.vsix
+          path: packages/vscode/token-to-css.vsix
+        if: always()
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/vscode-v')
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Package the extension (vsce)
+        run: npx --yes @vscode/vsce package --no-dependencies --out token-to-css.vsix
+        working-directory: packages/vscode
+      - name: Publish to Visual Studio Marketplace
+        run: npx --yes @vscode/vsce publish --packagePath token-to-css.vsix
+        working-directory: packages/vscode
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      - name: Publish to Open VSX
+        run: npx --yes ovsx publish token-to-css.vsix
+        working-directory: packages/vscode
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}

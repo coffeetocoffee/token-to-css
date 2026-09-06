@@ -278,6 +278,10 @@ existing MCP tools; no compiler is bundled. It adds three language tools to
 the MCP surface (`token_info`, `completions`, `diagnostics`) so hover,
 completion, and squiggles all resolve server-side:
 
+> Install from the **VS Code Marketplace** (search "token-to-css", or Open VSX
+> mirror), then ensure the `token-to-css` CLI is on `PATH` — the extension
+> spawns `token-to-css mcp <tokens.json>` and needs no repo checkout.
+
 - **hover** a `var(--color-primary)`, a `{token}` ref, or a raw hex that
   matches a token → resolved value, swatch hex, canonical variable,
   deprecation + `replacedBy` migration path;
