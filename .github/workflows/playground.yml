@@ -37,6 +37,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Install (link workspaces so @token-to-css/* resolve)
+        run: npm install
       - name: Build the static playground
         run: node src/cli.js playground --static dist-playground
       - name: Configure Pages
