@@ -251,10 +251,13 @@ test("v12.3 editing: pathForHover + customValueFrom helpers", () => {
 test("v12.3 workspace: plain path resolves once per root (no glob walk)", () => {
   assert.equal(isGlobPattern("tokens.json"), false);
   assert.equal(isGlobPattern("packages/*/tokens.json"), true);
-  const out = resolveTokensPaths(["C:/ws/a", "C:/ws/b"], "tokens.json");
-  assert.deepEqual(out.map((p) => p.replace(/\\/g, "/")), [
-    "C:/ws/a/tokens.json",
-    "C:/ws/b/tokens.json",
+  const wsA = join(tmpdir(), "ws-a");
+  const wsB = join(tmpdir(), "ws-b");
+  const out = resolveTokensPaths([wsA, wsB], "tokens.json");
+  // Returned paths are absolute posix form (the extension's map keys).
+  assert.deepEqual(out.map((p) => p.split("\\").join("/").toLowerCase()), [
+    `${wsA.split("\\").join("/").toLowerCase()}/tokens.json`,
+    `${wsB.split("\\").join("/").toLowerCase()}/tokens.json`,
   ]);
 });
 
