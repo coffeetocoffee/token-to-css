@@ -12,6 +12,17 @@ import {
   quickFixFor,
 } from "../src/providers.js";
 import { buildLanguageIndex, tokenInfo } from "../src/language.js";
+import {
+  pathForHover,
+  editQuickItems,
+  customValueFrom,
+  previewRequestBody,
+  previewSummary,
+  commitBody,
+} from "../src/editing.js";
+import { resolveTokensPaths, isGlobPattern } from "../src/workspace.js";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(here, "..", "..", "..");
@@ -113,6 +124,168 @@ test("mcp client: diagnostics returns hardcoded-value squiggles + quick-fix", as
     const dim = payload.diagnostics.find((d) => d.value === "1rem");
     assert.ok(dim, "dimension finding expected");
   });
+});
+
+// --- v12.3: v7 lint in the editor (deprecated-in-use squiggles) --------------
+
+test("v12.3 mcp: token-file sources get deprecated-in-use + replacedBy quick-fix", async () => {
+  await withMcp(async (client) => {
+    const text = JSON.stringify(
+      { surface: { alt: "{deprecated.old}", ok: "{color.primary}" } },
+      null,
+      2
+    );
+    const payload = await client.callTool("diagnostics", {
+      sources: [{ file: "tokens.json", text }],
+    });
+    const d = payload.diagnostics.find((x) => x.code === "deprecated-in-use");
+    assert.ok(d, "deprecated-in-use finding expected");
+    assert.equal(d.path, "deprecated.old");
+    assert.equal(d.replacedBy, "color.primary");
+    assert.equal(d.length, "deprecated.old".length);
+    assert.equal(d.quickFix.title, "Use {color.primary}");
+    assert.equal(d.quickFix.replacement, "color.primary");
+    // No bogus hardcoded-value findings inside token definitions.
+    assert.equal(payload.diagnostics.filter((x) => x.code === "hardcoded-value").length, 0);
+  });
+});
+
+test("v12.3 mcp: consumer sources get var(--deprecated) squiggles", async () => {
+  await withMcp(async (client) => {
+    const text = ".a { color: var(--deprecated-old); }";
+    const payload = await client.callTool("diagnostics", {
+      sources: [{ file: "a.css", text }],
+    });
+    const d = payload.diagnostics.find((x) => x.code === "deprecated-in-use");
+    assert.ok(d, "deprecated-in-use finding expected");
+    assert.equal(d.variable, "--color-primary");
+    assert.equal(d.quickFix.replacement, "--color-primary");
+  });
+});
+
+test("v12.3 providers: diagnosticsFor passes replacement through; quickFixFor swaps deprecated use", () => {
+  const index = { byPath: { "deprecated.old": {} }, byVariable: {}, byHex: {}, completions: [] };
+  const ds = diagnosticsFor(
+    '"x":"{deprecated.old}"',
+    "t.json",
+    [
+      {
+        code: "deprecated-in-use",
+        message: "{deprecated.old} is deprecated — use {color.primary} instead",
+        severity: "warning",
+        line: 1,
+        column: 7,
+        length: "deprecated.old".length,
+        path: "deprecated.old",
+        replacedBy: "color.primary",
+        quickFix: { title: "Use {color.primary}", replacement: "color.primary" },
+      },
+    ],
+    index
+  );
+  assert.equal(ds[0].code, "deprecated-in-use");
+  assert.equal(ds[0].replacedBy, "color.primary");
+  assert.equal(ds[0].replacement, "color.primary");
+  assert.equal(ds[0].range.start.character, 6);
+  assert.equal(ds[0].range.end.character, 6 + "deprecated.old".length);
+
+  const fix = quickFixFor(ds[0]);
+  assert.ok(fix, "deprecated-in-use should quick-fix");
+  assert.equal(fix.title, "Use color.primary");
+  assert.equal(fix.edit.replacement, "color.primary");
+  assert.equal(fix.edit.range.start.character, 6);
+  // Still null for diagnostics without a replacement.
+  assert.equal(quickFixFor({ code: "deprecated-in-use", replacement: null }), null);
+});
+
+// --- v12.3: true inline editing (pure pipeline helpers) ----------------------
+
+test("v12.3 editing: commitBody builds the web editor's scoped POST /tokens body", () => {
+  assert.deepEqual(commitBody("color.primary", "#22d3ee"), { color: { primary: "#22d3ee" } });
+  assert.deepEqual(commitBody("a.b.c", "1rem"), { a: { b: { c: "1rem" } } });
+  assert.deepEqual(commitBody("color.primary", "#22d3ee", { mode: "dark" }), {
+    modes: { dark: { color: { primary: "#22d3ee" } } },
+  });
+  assert.deepEqual(commitBody("color.primary", "#22d3ee", { brand: "acme" }), {
+    brands: { acme: { color: { primary: "#22d3ee" } } },
+  });
+  assert.deepEqual(previewRequestBody("color.primary", "#22d3ee", { mode: "dark" }), {
+    path: "color.primary",
+    value: "#22d3ee",
+    mode: "dark",
+    brand: undefined,
+  });
+});
+
+test("v12.3 editing: previewSummary renders change, diff, verdict, impact", () => {
+  const lines = previewSummary({
+    changed: { type: "value", path: "color.primary", scope: "base", from: "#3b82f6", to: "#22d3ee" },
+    diff: { added: {}, removed: {}, changed: { "color.primary": { from: "#3b82f6", to: "#22d3ee" } } },
+    verdict: { bump: "minor" },
+    blocked: false,
+    impact: { direct: ["button.accent"], transitive: ["button.accent:hover"] },
+  });
+  assert.ok(lines.some((l) => l.includes("color.primary [base]: #3b82f6 → #22d3ee")));
+  assert.ok(lines.some((l) => l.startsWith("~ color.primary:")));
+  assert.ok(lines.includes("release: minor"));
+  assert.ok(lines.some((l) => l.includes("button.accent:hover")));
+  assert.equal(lines.some((l) => l.includes("major")), false);
+
+  const rejected = previewSummary({
+    errors: [{ code: "unknown-ref", ref: "nope.missing", valid: ["color.primary"] }],
+  });
+  assert.ok(rejected[0].includes("unknown reference {nope.missing}"));
+  assert.ok(rejected[1].includes("color.primary"));
+});
+
+test("v12.3 editing: pathForHover + customValueFrom helpers", () => {
+  assert.equal(pathForHover({ path: "color.primary" }), "color.primary");
+  assert.equal(pathForHover({ kind: "suggestion", path: "color.primary" }), "color.primary");
+  assert.equal(pathForHover(null), null);
+  assert.equal(customValueFrom(" #123456 "), "#123456");
+  assert.equal(customValueFrom(null), "");
+});
+
+// --- v12.3: multi-root + glob config -----------------------------------------
+
+test("v12.3 workspace: plain path resolves once per root (no glob walk)", () => {
+  assert.equal(isGlobPattern("tokens.json"), false);
+  assert.equal(isGlobPattern("packages/*/tokens.json"), true);
+  const out = resolveTokensPaths(["C:/ws/a", "C:/ws/b"], "tokens.json");
+  assert.deepEqual(out.map((p) => p.replace(/\\/g, "/")), [
+    "C:/ws/a/tokens.json",
+    "C:/ws/b/tokens.json",
+  ]);
+});
+
+test("v12.3 workspace: glob expands across nested token files, deduped + sorted", () => {
+  const root = mkdtempSync(join(tmpdir(), "ttc-glob-"));
+  try {
+    for (const pkg of ["alpha", "beta"]) {
+      mkdirSync(join(root, "packages", pkg), { recursive: true });
+      writeFileSync(join(root, "packages", pkg, "tokens.json"), "{}");
+    }
+    mkdirSync(join(root, "packages", "node_modules", "evil"), { recursive: true });
+    writeFileSync(join(root, "packages", "node_modules", "evil", "tokens.json"), "{}");
+
+    const out = resolveTokensPaths([root], "packages/*/tokens.json");
+    assert.deepEqual(
+      out.map((p) => p.replace(/\\/g, "/").slice(root.replace(/\\/g, "/").length + 1)),
+      ["packages/alpha/tokens.json", "packages/beta/tokens.json"]
+    );
+    // ** also walks deeper and never enters node_modules.
+    const deep = resolveTokensPaths([root], "**/tokens.json");
+    assert.ok(deep.some((p) => p.replace(/\\/g, "/").endsWith("packages/alpha/tokens.json")));
+    assert.equal(deep.some((p) => p.includes("node_modules")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("v12.3 workspace: multi-root glob resolution (one entry per matched file)", () => {
+  const out = resolveTokensPaths(["R:/w1", "R:/w2"], "configs/*.json");
+  // Non-existent glob base yields no matches (unlike plain paths).
+  assert.deepEqual(out, []);
 });
 
 test("providers: findVarUses/findRefs offsets", () => {

@@ -178,6 +178,8 @@ export function diagnosticsFor(text, file, diags, index) {
       variable: d.variable,
       path: d.path,
       exact: d.exact,
+      replacedBy: d.replacedBy,
+      replacement: d.quickFix && d.quickFix.replacement ? d.quickFix.replacement : null,
     });
   }
   for (const { ref, index: start, length } of findRefs(text)) {
@@ -202,13 +204,28 @@ export function diagnosticsFor(text, file, diags, index) {
 
 /** The quick-fix (CodeAction) payload for one diagnostic. */
 export function quickFixFor(diagnostic) {
-  if (diagnostic.code !== "hardcoded-value" || !diagnostic.variable) return null;
-  return {
-    title: `Use ${diagnostic.variable}`,
-    kind: "quickfix",
-    edit: {
-      replacement: `var(${diagnostic.variable})`,
-      range: diagnostic.range,
-    },
-  };
+  if (diagnostic.code === "hardcoded-value" && diagnostic.variable) {
+    return {
+      title: `Use ${diagnostic.variable}`,
+      kind: "quickfix",
+      edit: {
+        replacement: diagnostic.replacement || `var(${diagnostic.variable})`,
+        range: diagnostic.range,
+      },
+    };
+  }
+  // v7 lint (v12.3): swap a deprecated use for its `replacedBy` migration.
+  // The squiggle covers the ref/var name itself; the replacement is the bare
+  // dotted path (token files) or `--var` name (CSS).
+  if (diagnostic.code === "deprecated-in-use" && diagnostic.replacement) {
+    return {
+      title: `Use ${diagnostic.replacedBy || diagnostic.replacement}`,
+      kind: "quickfix",
+      edit: {
+        replacement: diagnostic.replacement,
+        range: diagnostic.range,
+      },
+    };
+  }
+  return null;
 }

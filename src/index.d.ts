@@ -671,13 +671,15 @@ export interface EditorDiagnostic {
   index: number;
   length: number;
   severity: "warning" | "error";
-  code: "hardcoded-value";
+  code: "hardcoded-value" | "deprecated-in-use";
   message: string;
   value: string;
-  variable: string;
+  variable?: string;
   path: string | null;
   exact: boolean;
-  quickFix: { title: string; variable: string };
+  /** deprecated-in-use only: the migration target. */
+  replacedBy?: string | null;
+  quickFix: { title: string; replacement: string; variable?: string };
 }
 
 export interface DiagnosticsResult {
@@ -741,4 +743,18 @@ export function writeStaticPlayground(
   dir: string,
   options?: Parameters<typeof buildStaticPlayground>[0]
 ): { dir: string; files: string[] };
+
+// --- v12.3: editor parity diagnostics (MCP tool payload) ---
+
+/**
+ * The `diagnostics` MCP tool accepts token-file sources (`.json` or
+ * `kind: "tokens"`), which are scanned for `{deprecated.ref}` uses; consumer
+ * sources are scanned by the v9 lintConsumer for hardcoded values and
+ * `var(--deprecated)` uses.
+ */
+export interface DiagnosticsSource {
+  file: string;
+  text: string;
+  kind?: "tokens" | "consumer";
+}
 

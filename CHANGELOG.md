@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [12.3.0] - 2026-09-06
+
+### Added — editor parity (v7 lint squiggles, true inline editing, multi-root)
+
+`Act 0 / v12.3` — the extension catches up with the web editor: governance
+warnings surface where you type, tokens can be edited without leaving VS Code,
+and multi-package workspaces stop being a one-token-file world.
+
+- **v7 `deprecated-in-use` lint in the editor**: the MCP `diagnostics` tool now
+  flags deprecated token usage — `{deprecated.ref}` in token files and
+  `var(--deprecated)` in consumer CSS/SCSS — each squiggle carrying the
+  `replacedBy` migration and a one-click quick-fix that swaps in the
+  replacement (bare dotted path in token files, `--var` in CSS). Sources
+  ending in `.json` are treated as token files (kind `tokens`); the
+  hardcoded-value scan is skipped there, since token definitions are not
+  consumer code. An explicit `kind: "consumer"` overrides the inference.
+- **True inline editing**: a new `token-to-css.editToken` command (also linked
+  from every token hover) runs hover → QuickPick (preset ±10% values or a
+  custom input) → `POST /editor/preview` (the v10.5 diff-before-commit
+  dry-run: validation, resolved diff, semver verdict, impact) → a governed
+  `POST /tokens` commit — the identical pipeline the web editor drives, so
+  `--approve` queues a 202 change request and read-only scopes stay 403.
+  Requires `tokenToCss.serveUrl`. Pipeline helpers live in the pure
+  `src/editing.js` (`editQuickItems`, `previewRequestBody`, `previewSummary`,
+  `commitBody`), tested headless like the rest of the extension brain.
+- **Multi-root + glob config**: `tokenToCss.tokensPath` accepts a glob (e.g.
+  `packages/*/tokens.json`) resolved against every workspace folder — each
+  match boots its own `token-to-css mcp` child; hovers, completions, and
+  diagnostics route through the matching server. `json` files now get
+  diagnostics and quick-fixes too. Zero-dep glob resolution lives in
+  `src/workspace.js` (never walks `node_modules`/`.git`).
+
 ## [12.2.0] - 2026-09-06
 
 ### Added — the static playground (hosted, no server)
@@ -720,7 +752,11 @@ connectors graduate it.)
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v10.5.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v12.3.0...HEAD
+[12.3.0]: https://github.com/coffeetocoffee/token-to-css/compare/v12.2.0...v12.3.0
+[12.2.0]: https://github.com/coffeetocoffee/token-to-css/compare/v12.1.0...v12.2.0
+[12.1.0]: https://github.com/coffeetocoffee/token-to-css/compare/v12.0.0...v12.1.0
+[12.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v11.5.0...v12.0.0
 [11.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v11.0.0...v11.5.0
 [11.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v10.5.0...v11.0.0
 [10.5.0]: https://github.com/coffeetocoffee/token-to-css/compare/v10.0.0...v10.5.0

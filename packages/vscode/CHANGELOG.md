@@ -5,6 +5,26 @@ All notable changes to this extension are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [12.3.0]
+
+### Added — editor parity
+
+- **v7 lint squiggles**: deprecated token usage is flagged where you type —
+  `{deprecated.ref}` in token files and `var(--deprecated)` in CSS/SCSS — with
+  a quick-fix that swaps in the `replacedBy` migration. `.json` files now get
+  diagnostics too (token-file sources; hardcoded-value scanning is skipped
+  there, it only applies to consumer code).
+- **True inline editing**: `token-to-css: Edit token at cursor` (also linked
+  from every token hover) opens a QuickPick of preset ±10% values or a custom
+  input, shows the diff-before-commit preview (resolved diff + semver verdict
+  + impact from `POST /editor/preview`), and commits through the governed
+  `POST /tokens` write scope — the same pipeline as the web editor, including
+  change-request mode (202) on approval-gated servers. Requires
+  `tokenToCss.serveUrl`.
+- **Multi-root + glob config**: `tokenToCss.tokensPath` accepts a glob (e.g.
+  `packages/*/tokens.json`) resolved against every workspace folder; each
+  matched file gets its own language server.
+
 ## [12.1.0]
 
 ### Added — Marketplace release

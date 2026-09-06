@@ -64,6 +64,16 @@ function collectDeprecations(node, prefix = [], out = []) {
 }
 
 const DIMENSION_RE = /^\s*-?\d*\.?\d+(px|rem|em|%|pt|vh|vw|ch|ex|fr|vmin|vmax)\s*$/;
+const REF_SCAN_RE = /\{([\w.:-]+)\}/g;
+const VAR_USE_SCAN_RE = /var\(\s*(--[\w-]+)\s*\)/g;
+
+/** 1-based {line, column} for a 0-based offset (same convention as lintConsumer). */
+function posOf(text, index) {
+  return {
+    line: text.slice(0, index).split("\n").length,
+    column: index - text.lastIndexOf("\n", index - 1),
+  };
+}
 
 /**
  * Build the language index once per context: resolved flat tokens, valid
@@ -178,13 +188,61 @@ function completionsPayload(ctx, { prefix = "", kind = "css", max = 200 } = {}) 
   return { completions: out, total: lang.paths.length };
 }
 
-/** Consumer-code diagnostics (v9 lint) + unknown `{ref}` diagnostics. */
+/**
+ * v12.3 — editor diagnostics over MCP:
+ * - `hardcoded-value` (v9 lintConsumer) for consumer sources (CSS/SCSS/etc.);
+ * - `deprecated-in-use` (v7 lint) for `var(--deprecated)` uses in consumer
+ *   sources and `{deprecated.ref}` uses in token-file sources, each carrying
+ *   the `replacedBy` migration and a quick-fix replacement.
+ *
+ * A source is a token file when it says so (`kind: "tokens"`) or its file name
+ * ends in `.json`; everything else is consumer code.
+ */
 function diagnosticsPayload(ctx, { sources = [], text = null, file = "untitled" } = {}) {
   const diagnostics = [];
   sources = sources.filter((s) => s && typeof s.text === "string");
   if (text != null) sources = [...sources, { file, text }];
-  if (sources.length > 0) {
-    const { findings } = lintConsumer(ctx.tokens, sources);
+  if (sources.length === 0) return { diagnostics, total: 0 };
+
+  const lang = languageIndex(ctx);
+  const deprecated = new Map(lang.deprecations.map((d) => [d.path, d.replacedBy]));
+  const pathByVariable = {};
+  for (const [path, entry] of Object.entries(lang.flat)) pathByVariable[entry.variable] = path;
+
+  for (const s of sources) {
+    const kind = s.kind || (/\.json$/i.test(String(s.file || "")) ? "tokens" : "consumer");
+    if (kind === "tokens") {
+      REF_SCAN_RE.lastIndex = 0;
+      let m;
+      while ((m = REF_SCAN_RE.exec(s.text))) {
+        const ref = m[1];
+        if (Number.isInteger(Number(ref))) continue;
+        const replacedBy = deprecated.get(ref);
+        if (replacedBy === undefined) continue;
+        const start = m.index + 1; // the ref inside the braces
+        const { line, column } = posOf(s.text, start);
+        diagnostics.push({
+          source: "token-to-css",
+          file: s.file,
+          line,
+          column,
+          index: start,
+          length: ref.length,
+          severity: "warning",
+          code: "deprecated-in-use",
+          message: `{${ref}} is deprecated${replacedBy ? ` — use {${replacedBy}} instead` : ""}`,
+          value: ref,
+          path: ref,
+          exact: true,
+          replacedBy,
+          quickFix: replacedBy
+            ? { title: `Use {${replacedBy}}`, replacement: replacedBy }
+            : null,
+        });
+      }
+      continue;
+    }
+    const { findings } = lintConsumer(ctx.tokens, [s]);
     for (const f of findings) {
       diagnostics.push({
         source: "token-to-css",
@@ -200,7 +258,37 @@ function diagnosticsPayload(ctx, { sources = [], text = null, file = "untitled" 
         variable: f.variable,
         path: f.path,
         exact: f.exact,
-        quickFix: { title: `Use ${f.variable}`, variable: f.variable },
+        quickFix: { title: `Use ${f.variable}`, replacement: `var(${f.variable})`, variable: f.variable },
+      });
+    }
+    VAR_USE_SCAN_RE.lastIndex = 0;
+    let v;
+    while ((v = VAR_USE_SCAN_RE.exec(s.text))) {
+      const name = v[1];
+      const path = pathByVariable[name];
+      if (!path) continue;
+      const replacedBy = deprecated.get(path);
+      if (replacedBy === undefined) continue;
+      const replacementVariable = lang.flat[replacedBy] ? lang.flat[replacedBy].variable : null;
+      if (!replacementVariable) continue;
+      const start = v.index + v[0].indexOf(name);
+      const { line, column } = posOf(s.text, start);
+      diagnostics.push({
+        source: "token-to-css",
+        file: s.file,
+        line,
+        column,
+        index: start,
+        length: name.length,
+        severity: "warning",
+        code: "deprecated-in-use",
+        message: `var(${name}) is deprecated — use var(${replacementVariable})`,
+        value: name,
+        path,
+        exact: true,
+        replacedBy,
+        variable: replacementVariable,
+        quickFix: { title: `Use var(${replacementVariable})`, replacement: replacementVariable },
       });
     }
   }
@@ -264,7 +352,7 @@ const TOOLS = [
   {
     name: "diagnostics",
     description:
-      "v12 language tool: consumer-code diagnostics — hardcoded color/dimension literals that match (or nearly match, OKLCH) a known token, with a `use var(--token)` quick-fix.",
+      "v12 language tool: consumer-code diagnostics — hardcoded color/dimension literals that match (or nearly match, OKLCH) a known token, plus v7 `deprecated-in-use` squiggles for var(--deprecated) uses (consumer sources) and {deprecated.ref} uses (token-file sources), each with a replacement quick-fix. Sources ending in .json are treated as token files unless `kind: \"consumer\"` is set.",
     inputSchema: {
       type: "object",
       properties: {
@@ -272,7 +360,11 @@ const TOOLS = [
           type: "array",
           items: {
             type: "object",
-            properties: { file: { type: "string" }, text: { type: "string" } },
+            properties: {
+              file: { type: "string" },
+              text: { type: "string" },
+              kind: { type: "string", enum: ["tokens", "consumer"] },
+            },
           },
         },
         text: { type: "string" },
@@ -353,7 +445,7 @@ export function handleMcpMessage(message, ctx) {
       result: {
         protocolVersion: "2024-11-05",
         capabilities: { tools: {} },
-        serverInfo: { name: "token-to-css", version: "12.2.0" },
+        serverInfo: { name: "token-to-css", version: "12.3.0" },
       },
     };
   }

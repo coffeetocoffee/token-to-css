@@ -2,7 +2,7 @@
   "name": "token-to-css-vscode",
   "displayName": "token-to-css — design tokens",
   "description": "Hover, completion, and adoption diagnostics for design tokens. A thin client over `token-to-css mcp` — no bundled compiler.",
-  "version": "12.1.0",
+  "version": "12.3.0",
   "publisher": "coffeetocoffee",
   "license": "MIT",
   "private": true,
@@ -51,7 +51,7 @@
         "tokenToCss.tokensPath": {
           "type": "string",
           "default": "tokens.json",
-          "description": "Token file (relative to the workspace root) the language server reads."
+          "description": "Token file (or glob, e.g. packages/*/tokens.json) the language server reads — resolved against every workspace folder; each match gets its own language server."
         },
         "tokenToCss.bin": {
           "type": "string",
@@ -72,6 +72,10 @@
       {
         "command": "token-to-css.restart",
         "title": "token-to-css: Restart language server"
+      },
+      {
+        "command": "token-to-css.editToken",
+        "title": "token-to-css: Edit token at cursor (preview → governed commit)"
       },
       {
         "command": "token-to-css.openEditor",

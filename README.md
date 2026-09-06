@@ -6,7 +6,7 @@
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![GitHub Release](https://img.shields.io/github/v/release/coffeetocoffee/token-to-css)](https://github.com/coffeetocoffee/token-to-css/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v12.2.0](https://img.shields.io/badge/phase-12.2.0%20%E2%80%94%20static%20playground%2C%20browser%2Dsafe%20core-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v12.3.0](https://img.shields.io/badge/phase-12.3.0%20%E2%80%94%20editor%20parity-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 ## Install
@@ -290,17 +290,31 @@ completion, and squiggles all resolve server-side:
 - **diagnostics + quick-fix**: the v9 consumer lint as editor squiggles —
   a hardcoded `#3b82f6` becomes "use `var(--color-primary)`", and the
   quick-fix applies `adopt --fix` semantics to that single squiggle
-  (idempotent);
-- **commands**: restart the language server, open the visual editor, and a
-  live theme preview webview (iframes a running `serve` over `/events`).
+  (idempotent). Since v12.3, the v7 governance lint is wired too: a
+  `{deprecated.ref}` in a token file or a `var(--deprecated)` in CSS gets a
+  squiggle with a `replacedBy` quick-fix, and `.json` files are linted as
+  token files (no hardcoded-value noise inside token definitions);
+- **inline editing** (v12.3): `token-to-css: Edit token at cursor` — or the
+  "Edit token" link on any hover — picks a new value (±10% presets or custom),
+  shows the diff-before-commit preview (resolved diff + semver verdict +
+  impact), and commits through the governed `POST /tokens` write scope of a
+  running `serve` (`tokenToCss.serveUrl`). With `serve --approve` the edit
+  lands as a 202 change request, exactly like the web editor;
+- **commands**: restart the language server, edit the token at cursor, open
+  the visual editor, and a live theme preview webview (iframes a running
+  `serve` over `/events`).
 
 ```jsonc
 // .vscode/settings.json
-{ "tokenToCss.tokensPath": "tokens.json",        // default
-  "tokenToCss.bin": "token-to-css",              // CLI on PATH
-  "tokenToCss.serveUrl": "http://localhost:4173" // optional: editor + preview
+{ "tokenToCss.tokensPath": "packages/*/tokens.json", // glob or single path (v12.3)
+  "tokenToCss.bin": "token-to-css",                  // CLI on PATH
+  "tokenToCss.serveUrl": "http://localhost:4173"     // optional: editor + preview
 }
 ```
+
+`tokenToCss.tokensPath` accepts a **glob** resolved against every workspace
+folder — each matched token file gets its own language server, so monorepos
+stop fighting over a single `tokens.json`.
 
 **Hosted playground** — the shareable playground promoted to a hosted default:
 
