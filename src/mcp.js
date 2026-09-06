@@ -353,7 +353,7 @@ export function handleMcpMessage(message, ctx) {
       result: {
         protocolVersion: "2024-11-05",
         capabilities: { tools: {} },
-        serverInfo: { name: "token-to-css", version: "12.0.0" },
+        serverInfo: { name: "token-to-css", version: "12.2.0" },
       },
     };
   }

@@ -138,6 +138,12 @@ document.getElementById("propose").addEventListener("click",async ()=>{
 export function createTokenServer(options = {}) {
   const tokensPath = options.tokensPath ? resolvePath(options.tokensPath) : null;
   const auth = options.auth || null;
+  // v12.2 cross-origin browser clients (e.g. the static playground hosted on
+  // GitHub Pages): `cors: true` allows any origin, `cors: "<origin>"` pins
+  // one. OPTIONS preflights are answered before the auth gate (browsers do
+  // not send Authorization on preflights).
+  const corsOrigin =
+    options.cors === true ? "*" : typeof options.cors === "string" ? options.cors : null;
   // v11.0 org trust: when `options.org` is set, auth resolvers are invoked as
   // `auth(token, org)` so org-scoped tokens only resolve for their own org.
   const selfOrg = options.org || null;
@@ -216,6 +222,19 @@ export function createTokenServer(options = {}) {
     const url = new URL(req.url, "http://localhost");
     const path = url.pathname;
     const q = url.searchParams;
+
+    if (corsOrigin) {
+      res.setHeader("Access-Control-Allow-Origin", corsOrigin);
+      res.setHeader("Vary", "Origin");
+      if (req.method === "OPTIONS") {
+        res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+        res.setHeader("Access-Control-Max-Age", "86400");
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+    }
 
     // Auth / scoping gate (v6.0). Open server when no `auth` configured.
     // v11.0: with `options.org` set, org-aware resolvers (`createOrgAuth`)

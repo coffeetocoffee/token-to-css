@@ -1,6 +1,6 @@
 {
   "name": "token-to-css",
-  "version": "12.0.0",
+  "version": "12.2.0",
   "description": "Convert design token JSON files into framework-agnostic CSS (custom properties, SCSS, or barefoot-css).",
   "type": "module",
   "repository": {
@@ -49,8 +49,8 @@
     "packages/*"
   ],
   "dependencies": {
-    "@token-to-css/core": "12.0.0",
-    "@token-to-css/connectors": "12.0.0"
+    "@token-to-css/core": "12.2.0",
+    "@token-to-css/connectors": "12.2.0"
   },
   "scripts": {
     "example": "node src/cli.js examples/tokens.json -o examples/output.css",

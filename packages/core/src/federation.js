@@ -1,9 +1,39 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { resolve as resolvePath, dirname } from "node:path";
 import { deepMerge } from "./merge.js";
 import { lintTokens, checkContract } from "./lint.js";
 import { buildNameRegistry } from "./registry.js";
 import { semverSatisfies, analyzeLockfile } from "./release.js";
+
+// node:fs / node:path are loaded dynamically (not statically) so the core
+// bundle stays browser-loadable (v12.2 static playground imports core from a
+// CDN). In Node the dynamic import resolves normally; in a browser it throws
+// and the pure/inline-manifest functions keep working with the fallback path
+// helpers below. File-reading functions guard with `needFs()` and throw a
+// clear error when called outside Node.
+let readFileSync = null;
+let readdirSync = null;
+let resolvePath = null;
+let dirname = null;
+try {
+  ({ readFileSync, readdirSync } = await import("node:fs"));
+  ({ resolve: resolvePath, dirname } = await import("node:path"));
+} catch {
+  // Browser fallback: string-based path munging for validateManifest and
+  // friends; actual file access stays unavailable (needFs() throws).
+  resolvePath = (...parts) =>
+    parts.join("/").replace(/(?<!:)\/{2,}/g, "/");
+  dirname = (p) => {
+    const i = p.lastIndexOf("/");
+    return i === -1 ? "." : p.slice(0, i) || "/";
+  };
+}
+
+function needFs() {
+  if (!readFileSync) {
+    throw new Error(
+      "file-based federation requires Node.js (node:fs is unavailable here)"
+    );
+  }
+}
 
 function getByPathLocal(node, path) {
   let cur = node;
@@ -18,6 +48,7 @@ function getByPathLocal(node, path) {
  * Parse and validate an org manifest file.
  */
 export function buildOrgManifest(manifestPath) {
+  needFs();
   const resolved = resolvePath(manifestPath);
   const raw = JSON.parse(readFileSync(resolved, "utf8"));
   return validateManifest(raw, resolved);
@@ -107,6 +138,7 @@ export function validateManifest(manifest, basePath = ".") {
  * Returns a semver-sorted ascending list of version strings.
  */
 export function listPackageVersions(packagesDir, packageName) {
+  needFs();
   const base = packageName
     ? resolvePath(packagesDir || ".", packageName)
     : resolvePath(packagesDir || ".");
@@ -130,6 +162,7 @@ export function listPackageVersions(packagesDir, packageName) {
  * Returns `{ name, version, tree, path }`.
  */
 export function resolvePackage(ref, { packages = {}, registryDir = null } = {}) {
+  needFs();
   const name = typeof ref === "string" ? ref : ref.package;
   if (!name) throw new Error("resolvePackage requires a package name");
   const range = typeof ref === "string" ? "*" : ref.range || "*";
@@ -179,6 +212,7 @@ export function resolveOrgTree(manifest) {
       resolvedPackages[name] = { name: pkg.name, version: pkg.version };
       raw = pkg.tree;
     } else {
+      needFs();
       raw = JSON.parse(readFileSync(config.path, "utf8"));
     }
     teamTrees[name] = raw;
@@ -427,6 +461,7 @@ export function validateFederatedManifest(manifest, basePath = ".") {
 
 /** Parse and validate a federated manifest file. */
 export function buildFederatedManifest(manifestPath) {
+  needFs();
   const resolved = resolvePath(manifestPath);
   const raw = JSON.parse(readFileSync(resolved, "utf8"));
   return validateFederatedManifest(raw, resolved);
@@ -468,6 +503,7 @@ export function resolveFederatedTree(fedManifest) {
  * affected usage.
  */
 export function analyzeCrossOrgLock(lock, registryDir, { nextVersion = null } = {}) {
+  needFs();
   if (!lock || !lock.package) {
     throw new Error("cross-org lockfile requires a 'package' field");
   }
@@ -518,7 +554,7 @@ export function lintOrg(manifest, contract = null) {
     try {
       const raw = config.package
         ? resolvePackage(config, { packages: manifest.packages || {} }).tree
-        : JSON.parse(readFileSync(config.path, "utf8"));
+        : (needFs(), JSON.parse(readFileSync(config.path, "utf8")));
       const lintResult = lintTokens(raw);
       const contractResult = contract ? checkContract(raw, contract) : null;
       results[name] = {

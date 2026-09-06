@@ -218,6 +218,8 @@ export function createTokenServer(options?: {
     | Record<string, "read" | "write">;
   approve?: boolean;
   channels?: { canary?: Tokens };
+  /** v12.2: allow cross-origin browser clients (true = any origin, string = pinned). */
+  cors?: boolean | string;
 }): TokenServer;
 
 // --- v10.5: Visual Token Editor ---
@@ -710,3 +712,33 @@ export interface PlaygroundHub extends import("node:http").Server {
   proposeToRemote(session: PlaygroundSession, proposal: Tokens): Promise<Record<string, unknown>>;
   closeAll(): void;
 }
+
+
+// --- v12.2: static-site playground ---
+
+/** The site stylesheet shared by the static playground pages. */
+export function buildStaticCSS(): string;
+
+/**
+ * Emit the self-contained static playground page (paste flow, browser-side
+ * compiler via the import map, optional serve write scope).
+ */
+export function buildStaticPlayground(options?: {
+  title?: string;
+  /** Pre-fills the paste textarea (a tokens.json string). */
+  sourceText?: string;
+  /** Seeds window.TTC_STATIC_CONFIG (serveUrl, token). */
+  config?: { serveUrl?: string; token?: string };
+  /** Override the CDN URL for @token-to-css/core (defaults to jsdelivr @12). */
+  cdnUrl?: string;
+}): string;
+
+/**
+ * Write the deployable site into `dir` (index.html + playground.js) —
+ * GitHub Pages / any static host ready.
+ */
+export function writeStaticPlayground(
+  dir: string,
+  options?: Parameters<typeof buildStaticPlayground>[0]
+): { dir: string; files: string[] };
+

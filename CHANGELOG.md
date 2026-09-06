@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [12.2.0] - 2026-09-06
+
+### Added — the static playground (hosted, no server)
+
+`Act 0 / v12.2` — the playground promoted to a genuinely hosted default:
+a pasted `tokens.json` gets a working preview + editor with **no server
+running**, and proposals flow through a configured write scope.
+
+- **`token-to-css playground --static <dir>`**: emits a deployable site —
+  `index.html` (paste flow + preview + editor) and `playground.js` (the
+  browser client, a real file so it stays testable). A few KB total; deploys
+  as-is to GitHub Pages or any static host. An optional input file pre-fills
+  the paste box; `--serve-url` / `--token` seed the proposal config.
+- **Browser-safe core**: `packages/core/src/federation.js` no longer
+  statically imports `node:fs`/`node:path` — they load dynamically at the top
+  of the module (Node resolves them; browsers fall back to string path
+  helpers, and the file-reading federation APIs throw a clear
+  "requires Node.js" error if called). Every function signature is unchanged;
+  core is now importable in a browser via a CDN ESM build. A package test
+  enforces the no-static-`node:` boundary across the core source tree.
+- **Client-side v10.5 pipeline**: the static page validates edits (unknown
+  `{ref}`s, unparseable colors), computes `diffTokens` + `classifyRelease`
+  before commit, blocks majors behind a confirm, and renders token rows with
+  color swatches from the resolved tree — all in the browser via the import
+  map (`@token-to-css/core` → jsDelivr `+esm`, major-pinned).
+- **`serve --cors`** (opt-in, `createTokenServer({ cors: true | origin })`):
+  cross-origin browser clients can read `GET /tokens` and POST proposals —
+  OPTIONS preflights are answered before the auth gate; the write scope is
+  still enforced on every POST (403 read-only). This is how the static page
+  proposes into a running mesh without being same-origin.
+- **GitHub Pages deploy** (`.github/workflows/playground.yml`): builds the
+  static site on every push to master and deploys it via the Pages workflow.
+- No breaking changes. Full suite: **305 tests** (294 → 305).
+
 ## [12.1.0] - 2026-09-05
 
 ### Added — VS Code extension marketplace release

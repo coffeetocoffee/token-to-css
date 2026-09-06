@@ -1,0 +1,52 @@
+name: Deploy playground (GitHub Pages)
+
+# v12.2 — the hosted playground as a static site. Builds the self-contained
+# playground (`playground --static`) and publishes it to GitHub Pages, so a
+# pasted tokens.json gets a working preview + editor with no server. The
+# compiler is imported in the browser from the CDN (import map), so the
+# artifact is a few KB of static files.
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "src/playground.js"
+      - "src/static/**"
+      - ".github/workflows/playground.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build the static playground
+        run: node src/cli.js playground --static dist-playground
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-playground
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

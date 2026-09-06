@@ -51,6 +51,7 @@ import {
   loadSnapshots,
   computeFederatedAdoption,
 } from "./adopt.js";
+import { createPlaygroundServer, writeStaticPlayground, buildStaticPlayground } from "./playground.js";
 import {
   createMcpContext,
   handleMcpMessage,
@@ -122,7 +123,7 @@ Usage:
   token-to-css govern <input.json> [--version <semver>] [--deprecate <path> --replaced-by <path>]
   token-to-css adopt <tokens.json> <sources...> [--fix] [--report] [--registry] [--snapshots <file>] [--max-distance 0.1]
   token-to-css mcp <tokens.json> [--serve-url <url>]
-  token-to-css playground [--port 4180]   (hosted: paste tokens or a serve URL)
+  token-to-css playground [--port 4180] [--static <out-dir>]   (hosted hub, or a static site)
   token-to-css release <prev.json> <next.json> [--version x.y.z] [--changelog <file>]
   token-to-css lock <lockfile.json> <prev.json> <next.json> [--version x.y.z]
   token-to-css bisect <token.path> --checkpoints <dir>
@@ -177,8 +178,13 @@ Options:
   --serve-url <url>    With mcp: point change-request creation at a running serve instance
    --canary <file>      With serve: enable a canary release channel from a token file
    --relay <url>        With serve: subscribe to a peer org's serve instance; remote
-                       changes arrive as change-requests (v11 cross-org relay)
-  --changelog <file>   With release: prepend the generated changelog section to a file
+                        changes arrive as change-requests (v11 cross-org relay)
+   --cors               With serve: allow cross-origin browser clients (e.g. the static
+                        playground on GitHub Pages) to read tokens and POST proposals
+   --static <dir>       With playground: write the self-contained static site (index.html
+                        + playground.js) into <dir> and exit — no server. Optional input
+                        file pre-fills the paste box; --serve-url/--token seed proposals
+   --changelog <file>   With release: prepend the generated changelog section to a file
   --checkpoints <dir>  With bisect: directory of ordered snapshot .json checkpoints
   -n, --no-validate     Skip token validation
   -h, --help            Show help
@@ -1063,6 +1069,7 @@ export function run(argv = process.argv.slice(2)) {
         approve: options.approve,
         channels: args.canary ? { canary: readTokensFile(args.canary) } : undefined,
         org: args.org || null,
+        cors: args.cors ? "*" : undefined,
         streamUrl: "/events",
       });
       // v11.0 cross-org relay: subscribe to peer org serve instances; remote
@@ -1540,22 +1547,36 @@ export function run(argv = process.argv.slice(2)) {
 
   if (sub === "playground") {
     try {
-      import("./playground.js").then(async ({ createPlaygroundServer }) => {
-        const port = Number(options.port) || 4180;
-        const hub = await createPlaygroundServer({
-          title: "token-to-css — hosted playground",
+      // v12.2 static-site mode: emit the deployable site and exit (no server).
+      if (args.static) {
+        const sourceText = input ? readFileSync(resolve(process.cwd(), input), "utf8") : null;
+        const outDir = resolve(process.cwd(), args.static);
+        const result = writeStaticPlayground(outDir, {
+          sourceText,
+          config: {
+            serveUrl: args["serve-url"] || "",
+            token: args.token || "",
+          },
         });
-        hub.listen(port, () => {
-          console.log(`playground hub  → http://localhost:${port}/`);
-          console.log("paste tokens.json (or a serve URL) to boot a live preview + editor session");
-        });
-        const shutdown = () => {
-          hub.closeAll();
-          hub.close();
-        };
-        process.on("SIGINT", shutdown);
-        process.on("SIGTERM", shutdown);
+        console.log(`static playground written to ${result.dir}`);
+        console.log(`  ${result.files.join(", ")}`);
+        console.log("deploy the directory as-is (GitHub Pages, any static host)");
+        return 0;
+      }
+      const port = Number(options.port) || 4180;
+      const hub = createPlaygroundServer({
+        title: "token-to-css — hosted playground",
       });
+      hub.listen(port, () => {
+        console.log(`playground hub  → http://localhost:${port}/`);
+        console.log("paste tokens.json (or a serve URL) to boot a live preview + editor session");
+      });
+      const shutdown = () => {
+        hub.closeAll();
+        hub.close();
+      };
+      process.on("SIGINT", shutdown);
+      process.on("SIGTERM", shutdown);
       return 0;
     } catch (err) {
       console.error(`error: ${err.message}`);

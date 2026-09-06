@@ -119,7 +119,7 @@ export class McpClient {
     const res = await this.request("initialize", {
       protocolVersion: "2024-11-05",
       capabilities: {},
-      clientInfo: { name: "token-to-css-vscode", version: "12.0.0" },
+      clientInfo: { name: "token-to-css-vscode", version: "12.1.0" },
     });
     this.serverInfo = res.serverInfo || null;
     this.notify("notifications/initialized");

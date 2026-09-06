@@ -6,7 +6,7 @@
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![GitHub Release](https://img.shields.io/github/v/release/coffeetocoffee/token-to-css)](https://github.com/coffeetocoffee/token-to-css/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v12.0.0](https://img.shields.io/badge/phase-12.0.0%20%E2%80%94%20VS%20Code%20extension%20%26%20hosted%20playground-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v12.2.0](https://img.shields.io/badge/phase-12.2.0%20%E2%80%94%20static%20playground%2C%20browser%2Dsafe%20core-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 ## Install
@@ -315,6 +315,22 @@ commit pipeline — diff-before-commit, semver verdict, governed write scope —
 is intact by construction. Sessions pointed at a remote `serve` mirror its
 tree and forward proposals to the remote write scope; with `serve --approve`
 they arrive as change requests / token PRs (GitHub connector).
+
+**Static playground** (v12.2) — the compiler runs *in the browser*: `core` is
+pure, zero-dep ESM, so the static site imports it from the CDN via an import
+map. No server needed to preview, edit, diff, and download:
+
+```
+token-to-css playground --static dist-playground   # optional: a tokens.json pre-fills the paste box
+```
+
+The emitted directory (`index.html` + `playground.js`, a few KB) deploys
+as-is to GitHub Pages or any static host. To commit changes **through
+governance**, run `token-to-css serve tokens.json --cors` next to it and paste
+that URL (+ bearer token) into the static page — proposals then flow through
+the governed `POST /tokens` write scope (change requests with `--approve`),
+cross-origin. The hosted copy of this exact site lives on this repo's GitHub
+Pages.
 
 ## Connectors
 
