@@ -1,6 +1,6 @@
 {
   "name": "token-to-css",
-  "version": "12.3.0",
+  "version": "14.0.0",
   "description": "Convert design token JSON files into framework-agnostic CSS (custom properties, SCSS, or barefoot-css).",
   "type": "module",
   "repository": {
@@ -30,11 +30,14 @@
     "./namespaces.js": "./src/namespaces.js",
     "./relay.js": "./src/relay.js",
     "./mcp.js": "./src/mcp.js",
+    "./metrics.js": "./src/metrics.js",
     "./playground.js": "./src/playground.js",
     "./connectors/figma.js": "./src/connectors/figma.js",
     "./connectors/storybook.js": "./src/connectors/storybook.js",
     "./connectors/github.js": "./src/connectors/github.js",
     "./connectors/cms.js": "./src/connectors/cms.js",
+    "./connectors/flutter.js": "./src/connectors/flutter.js",
+    "./connectors/compose.js": "./src/connectors/compose.js",
     "./connectors/index.js": "./src/connectors/index.js",
     "./editor.js": "./src/editor.js",
     "./presets/barefoot.js": "./src/presets/barefoot.js",
@@ -46,15 +49,19 @@
     "schema"
   ],
   "workspaces": [
-    "packages/*"
+    "packages/core",
+    "packages/connectors",
+    "packages/eslint-plugin",
+    "packages/stylelint-plugin"
   ],
   "dependencies": {
-    "@token-to-css/core": "12.3.0",
-    "@token-to-css/connectors": "12.3.0"
+    "@token-to-css/core": "14.0.0",
+    "@token-to-css/connectors": "14.0.0"
   },
   "scripts": {
     "example": "node src/cli.js examples/tokens.json -o examples/output.css",
     "test": "node --test",
+    "bench": "node scripts/bench-v13.js",
     "prepublishOnly": "npm test"
   },
   "engines": {

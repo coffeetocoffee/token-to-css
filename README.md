@@ -9,7 +9,7 @@ Zero deps · Node 20+ · CSS, themes, docs & a live mesh — from one JSON file.
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![GitHub Release](https://img.shields.io/github/v/release/coffeetocoffee/token-to-css)](https://github.com/coffeetocoffee/token-to-css/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v12.3.0](https://img.shields.io/badge/phase-12.3.0%20%E2%80%94%20editor%20parity-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v14.0.0](https://img.shields.io/badge/phase-14.0.0%20%E2%80%94%20component%20layer-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 </div>
@@ -57,11 +57,11 @@ token-to-css tokens.json -f css
 
 ## One source, any output
 
-`css` · `scss` · `tailwind` · `ts` / `js` · `json` · `docs` · `figma` · `storybook` · `cms` · +7 more
+`css` · `scss` · `tailwind` · `ts` / `js` · `json` · `docs` · `figma` · `storybook` · `cms` · `flutter` · `compose` · +7 more
 
 ```bash
 token-to-css tokens.json -o css:theme.css -o ts:tokens.ts -o docs:site/
-token-to-css kit tokens.json --out-dir dist       # css + runtime + types + preview
+token-to-css kit tokens.json --out-dir dist       # css + runtime + types + preview (+ components.css with --components)
 token-to-css serve tokens.json --port 4173        # live REST + SSE + visual editor
 ```
 
@@ -70,7 +70,7 @@ See all formats + flags with `token-to-css --help`.
 <br>
 
 <details>
-<summary><b>Go deeper — server, editor, VS Code, governance & more</b></summary>
+<summary><b>Go deeper — server, editor, governance & more</b></summary>
 
 <br>
 
@@ -80,7 +80,7 @@ See all formats + flags with `token-to-css --help`.
 
 **Server & editor** — `serve` gives REST (`GET /tokens`), SSE (`/events`), `POST /tokens` two-way, `--auth`, `--canary`, `--approve` change-requests, team rooms, `--relay` org mesh, connectors (`GET/POST /connectors`). Visual editor at `GET /editor` with diff-before-commit + semver verdict.
 
-**VS Code + playground** — hover / completion / squiggles + quick-fix + inline edit via `token-to-css mcp`. `playground` for hosted sessions, `playground --static` for a browser-only build.
+**Playground** — `playground` for hosted sessions, `playground --static` for a browser-only build. AI agents talk to tokens via `token-to-css mcp`.
 
 **Mesh** — `federate` teams + cross-org releases · `migrate` + `govern` renames with impact graph · `adopt --fix` rewrites hardcoded values · `release` / `lock` / `bisect` for semver + time travel · `registerConnector` / `registerFormat` / `registerFunction` plugins · slim installs via `@token-to-css/core` + `@token-to-css/connectors`.
 

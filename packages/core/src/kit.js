@@ -1,6 +1,7 @@
 import { resolveReferences } from "./references.js";
 import { deepMerge } from "./merge.js";
 import { validateTokens } from "./schema.js";
+import { buildComponentsCSS } from "./components.js";
 
 function kebab(str) {
   return str
@@ -216,11 +217,13 @@ document.getElementById("ttc-brand").addEventListener("change",e=>window.setThem
 `;
 }
 
-/** Build every kit artifact in memory. */
+/** Build every kit artifact in memory. `{ components: true }` opts into the v14
+ * component layer (themeable button/input/card/focus primitives). */
 export function buildKit(tokens, options = {}) {
   const { css, modes, brands } = buildKitCSS(tokens, options);
   const js = buildThemeJS();
   const html = buildPreviewHTML(tokens, options);
   const { ts, js: jsBindings, flat, names } = buildBindings(tokens, options);
-  return { css, js, html, ts, jsBindings, modes, brands, flat, names };
+  const components = options.components ? buildComponentsCSS(tokens, options) : "";
+  return { css, js, html, ts, jsBindings, modes, brands, flat, names, components };
 }

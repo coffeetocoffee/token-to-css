@@ -20,3 +20,13 @@ export function githubFilesToTokens(files: any): any;
 export function registerCmsConnector(opts: any): any;
 export function tokensToCmsEntries(tokens: any): any;
 export function cmsEntriesToTokens(entries: any): any;
+
+export function registerFlutterConnector(opts: any): any;
+export function tokensToFlutterTheme(tokens: any): any;
+export function flutterThemeToTokens(theme: any): any;
+export function buildFlutterDart(tree: any): string;
+
+export function registerComposeConnector(opts: any): any;
+export function tokensToComposeTheme(tokens: any): any;
+export function composeThemeToTokens(theme: any): any;
+export function buildComposeKotlin(tree: any): string;

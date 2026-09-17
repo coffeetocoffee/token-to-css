@@ -183,6 +183,40 @@ meta-package that re-exports both.
 | ------- | ------------------- |
 | 11.5.0  | The real package split: `@token-to-css/core` (compiler only, zero plugin deps), `@token-to-css/connectors` (hub SDK + Figma/Storybook/GitHub/CMS), root meta-package with unchanged import paths, per-package publish workflow |
 
+## From 12.x/13.x to 14.0
+
+v14.0 is a **major** for one reason: the VS Code extension is deleted.
+Everything else is additive — upgrading is drop-in unless you used the
+extension.
+
+- **Removed: `packages/vscode` and friends.** The extension, its
+  marketplace/VSIX pipeline (`.github/workflows/vscode.yml`,
+  `vsce`/`ovsx`), the `tokenToCss.*` settings, and the `token-to-css.editToken`
+  command are gone and will not return. If you drove edits through the
+  extension, switch to the web editor (`serve` → `GET /editor`), the static
+  playground (`playground --static`), or the governed `POST /tokens` /
+  `POST /editor/preview` endpoints directly. The MCP tools the extension
+  spoke (`token_info`/`completions`/`diagnostics` via `token-to-css mcp`)
+  are unchanged and remain for AI agents only.
+- **Behavior fix in `reverse` (Tailwind-mapped names).** `reverse()` now folds
+  Tailwind-mapped var names back to token paths (`--color-foreground` →
+  `color.text` instead of `color.foreground`), auto-detected on `@theme`
+  blocks. If you depended on the old (lossy) names, pass nothing new — just
+  expect corrected paths. Kebab collisions keep the long-standing
+  best-effort leaf-wins rule; use `--registry` for lossless round-trips.
+- **New, opt-in surface (no migration needed).** `kit --components`
+  (`buildComponentsCSS`, `getComponentContract`; `buildKit` gains a
+  `components` field, `""` unless opted in), `reverseTailwind`,
+  `registerFlutterConnector` / `registerComposeConnector` with the `flutter`
+  (Dart) and `compose` (Kotlin) output formats, `GET /metrics`
+  (`createMetrics`), the CR audit log (`--cr-log`), incremental
+  `/completions`, `federate --report` (`buildAdoptionReport`), and
+  `npm run bench`. The `serve` REST/SSE contract is otherwise unchanged.
+
+| Version | What you can now do |
+| ------- | ------------------- |
+| 14.0.0  | Component layer (`kit --components`, `buildComponentsCSS`), Tailwind `@theme` reverse round-trip (`reverseTailwind`), Flutter/Compose connectors + formats, `/metrics`, CR audit log, incremental `/completions`, adoption dashboards, perf CI — and no more VS Code extension |
+
 ## Stability guarantees (from 1.0.0)
 
 - **CLI flags** will not be removed or renamed except in a major version, and

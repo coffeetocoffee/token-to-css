@@ -17,9 +17,9 @@ export function createMcpContext({ tokens, serveUrl = null } = {}) {
   return { tokens, serveUrl, changeRequests: [] };
 }
 
-// --- v12.0: language tools for the VS Code extension -------------------
-// The extension is a thin client over these: hover/completion/diagnostics all
-// resolve server-side so no compiler code ships inside the editor bundle.
+// --- v12.0: language tools over MCP --------------------------------------
+// Hover/completion/diagnostics resolve server-side for AI agents and editor
+// integrations. No compiler code ships inside any client bundle.
 
 /** Flatten a resolved tree to `{ [dottedPath]: { path[], value, variable } }`. */
 function flatResolved(tree) {

@@ -21,7 +21,9 @@ export type Format =
   | "figma"
   | "storybook"
   | "github"
-  | "cms";
+  | "cms"
+  | "flutter"
+  | "compose";
 
 export interface ConvertOptions {
   format?: Format;
@@ -158,7 +160,16 @@ export interface KitResult {
   brands: string[];
   flat: Record<string, string>;
   names: string[];
+  /** v14: themeable primitive CSS (buttons, inputs, cards, focus rings); "" unless opted in. */
+  components: string;
 }
+
+// --- v14: component layer ---
+
+export const COMPONENT_PREFIX: string;
+export const COMPONENT_TOKENS: string[];
+export function getComponentContract(): { required: string[]; optional: string[] };
+export function buildComponentsCSS(tokens: Tokens, options?: ConvertOptions & { prefix?: string; include?: string[]; validate?: boolean }): string;
 
 export function splitThemes(tokens: Tokens): { base: Tokens; modes: Record<string, Tokens>; brands: Record<string, Tokens> };
 export function buildKitCSS(tokens: Tokens, options?: ConvertOptions & { brands?: string[] }): { css: string; modes: string[]; brands: string[] };
@@ -166,13 +177,14 @@ export const THEME_JS: string;
 export function buildThemeJS(): string;
 export function buildBindings(tokens: Tokens, options?: ConvertOptions): { ts: string; js: string; flat: Record<string, string>; names: string[] };
 export function buildPreviewHTML(tokens: Tokens, options?: ConvertOptions & { title?: string }): string;
-export function buildKit(tokens: Tokens, options?: ConvertOptions & { title?: string; brands?: string[] }): KitResult;
+export function buildKit(tokens: Tokens, options?: ConvertOptions & { title?: string; brands?: string[]; components?: boolean; prefix?: string; include?: string[] }): KitResult;
 export function buildDocsSite(tokens: Tokens, options?: ConvertOptions & { title?: string }): string;
 export function buildExplorerHTML(tokens: Tokens, options?: ConvertOptions & { files?: { name: string }[] }): string;
 export function buildProvenance(tokens: Tokens, options?: ConvertOptions & { title?: string }): string;
 
-export function reverse(css: string, options?: { barefoot?: boolean; registry?: { pathOf(canonical: string): string[] | null } }): Tokens;
+export function reverse(css: string, options?: { barefoot?: boolean; tailwind?: boolean; registry?: { pathOf(canonical: string): string[] | null } }): Tokens;
 export function reverseStyleDictionary(sd: unknown): Tokens;
+export function reverseTailwind(css: string, options?: { registry?: { pathOf(canonical: string): string[] | null } }): Tokens;
 
 // --- v5.0: Token Server mesh ---
 
@@ -342,6 +354,36 @@ export function registerCmsConnector(options?: {
 };
 export function tokensToCmsEntries(tokens: Tokens): Array<{ id: string; fields: { value: unknown; type: string; path: string } }>;
 export function cmsEntriesToTokens(entries: Array<{ id?: string; fields?: { value: unknown; type?: string; path?: string } }>): Tokens;
+
+export function registerFlutterConnector(options?: {
+  fetchImpl?: (url: string, init?: unknown) => Promise<unknown>;
+  url?: string;
+  token?: string;
+}): {
+  pull(): Promise<Tokens>;
+  push(tree: Tokens): Promise<unknown>;
+  tokensToFlutterTheme(tree: Tokens): unknown;
+  flutterThemeToTokens(doc: unknown): Tokens;
+  buildFlutterDart(tree: Tokens): string;
+};
+export function tokensToFlutterTheme(tokens: Tokens): { tokens: Tokens; theme: Record<string, unknown> };
+export function flutterThemeToTokens(doc: unknown): Tokens;
+export function buildFlutterDart(tree: Tokens): string;
+
+export function registerComposeConnector(options?: {
+  fetchImpl?: (url: string, init?: unknown) => Promise<unknown>;
+  url?: string;
+  token?: string;
+}): {
+  pull(): Promise<Tokens>;
+  push(tree: Tokens): Promise<unknown>;
+  tokensToComposeTheme(tree: Tokens): unknown;
+  composeThemeToTokens(doc: unknown): Tokens;
+  buildComposeKotlin(tree: Tokens): string;
+};
+export function tokensToComposeTheme(tokens: Tokens): { tokens: Tokens; theme: Record<string, unknown> };
+export function composeThemeToTokens(doc: unknown): Tokens;
+export function buildComposeKotlin(tree: Tokens): string;
 
 /**
  * Experimental: the `sync` surface (reverse-merge + drift) may change in a
@@ -633,7 +675,7 @@ export interface BisectResult {
 export function bisectToken(checkpoints: Checkpoint[], tokenPath: string): BisectResult;
 export function renderSideBySide(tokenPath: string, from: unknown, to: unknown): string;
 
-// --- v12.0: VS Code extension language tools (over MCP) ---
+// --- v12.0: MCP language tools ---
 
 export interface TokenInfo {
   path: string;

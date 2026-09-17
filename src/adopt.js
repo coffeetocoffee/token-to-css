@@ -318,6 +318,153 @@ export function computeOrgAdoption(manifest, resolveOrgTreeFn, sourcesByTeam) {
 }
 
 /**
+ * Build a shareable HTML adoption dashboard (the v13 `federate --report`
+ * charts page). Renders the per-team / per-org adoption scores as an inline SVG
+ * bar chart plus a summary table — zero-dependency, no external assets.
+ *
+ * Accepts either the single-org rollup `{ teams, org }` (from
+ * `computeOrgAdoption`) or the cross-org rollup `{ orgs, combined }` (from
+ * `computeFederatedAdoption`). An optional `history` array of
+ * `{ date, score }` points draws a trend line for the combined score.
+ */
+export function buildAdoptionReport(adoption, { title = "Token adoption report", history = [] } = {}) {
+  const groups = [];
+  let combined = null;
+  if (adoption && adoption.orgs) {
+    combined = adoption.combined;
+    for (const [org, info] of Object.entries(adoption.orgs)) {
+      groups.push({
+        name: org,
+        score: info.org.score,
+        adopted: info.org.adopted,
+        hardcoded: info.org.hardcoded,
+        teams: Object.entries(info.teams).map(([team, t]) => ({
+          name: `${org}/${team}`,
+          score: t.score,
+          adopted: t.adopted,
+          hardcoded: t.hardcoded,
+        })),
+      });
+    }
+  } else {
+    combined = adoption && adoption.org ? adoption.org : null;
+    groups.push({
+      name: "org",
+      score: combined ? combined.score : 0,
+      adopted: combined ? combined.adopted : 0,
+      hardcoded: combined ? combined.hardcoded : 0,
+      teams: Object.entries((adoption && adoption.teams) || {}).map(([team, t]) => ({
+        name: team,
+        score: t.score,
+        adopted: t.adopted,
+        hardcoded: t.hardcoded,
+      })),
+    });
+  }
+
+  const rows = groups.flatMap((g) =>
+    g.teams.map(
+      (t) => `<tr><td>${escapeHtml(t.name)}</td><td>${t.score}%</td><td>${t.adopted}</td><td>${t.hardcoded}</td></tr>`
+    )
+  );
+  const combinedRow = combined
+    ? `<tr class="total"><td>combined</td><td>${combined.score}%</td><td>${combined.adopted}</td><td>${combined.hardcoded}</td></tr>`
+    : "";
+
+  const barChart = renderBarChart(groups.flatMap((g) => g.teams));
+  const trendChart = history.length ? renderTrendChart(history) : "";
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${escapeHtml(title)}</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:2rem;color:#111;max-width:60rem}
+h1{font-size:1.4rem}
+table{border-collapse:collapse;width:100%;margin:1.5rem 0}
+th,td{border-bottom:1px solid #e5e7eb;padding:.5rem .75rem;text-align:left}
+th{font-size:.8rem;text-transform:uppercase;color:#6b7280}
+tr.total td{font-weight:700;border-top:2px solid #d1d5db}
+.chart{margin:1.5rem 0}
+.legend{font-size:.8rem;color:#6b7280}
+</style>
+</head>
+<body>
+<h1>${escapeHtml(title)}</h1>
+<div class="chart">${barChart}</div>
+${trendChart ? `<div class="chart">${trendChart}</div>` : ""}
+<table>
+<thead><tr><th>scope</th><th>adoption</th><th>adopted</th><th>hardcoded</th></tr></thead>
+<tbody>
+${rows.join("\n")}
+${combinedRow}
+</tbody>
+</table>
+</body>
+</html>
+`;
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Inline SVG bar chart of team adoption scores (0–100%). */
+function renderBarChart(teams) {
+  if (!teams.length) return "<p class='legend'>no adoption data</p>";
+  const w = 900;
+  const rowH = 26;
+  const labelW = 220;
+  const barMax = w - labelW - 60;
+  const h = teams.length * rowH + 10;
+  const bars = teams
+    .map((t, i) => {
+      const y = i * rowH + 8;
+      const bw = Math.max(2, Math.round((t.score / 100) * barMax));
+      const color = t.score >= 80 ? "#16a34a" : t.score >= 50 ? "#d97706" : "#dc2626";
+      return `<text x="0" y="${y + 14}" font-size="12">${escapeHtml(t.name)}</text>
+<rect x="${labelW}" y="${y}" width="${bw}" height="16" rx="3" fill="${color}" />
+<text x="${labelW + bw + 6}" y="${y + 14}" font-size="12" fill="#374151">${t.score}%</text>`;
+    })
+    .join("\n");
+  return `<svg width="100%" viewBox="0 0 ${w} ${h}" role="img" aria-label="adoption by team">${bars}</svg>`;
+}
+
+/** Inline SVG line chart of the combined adoption score over time. */
+function renderTrendChart(history) {
+  const w = 900;
+  const h = 200;
+  const pad = 30;
+  if (history.length < 2) return "";
+  const max = 100;
+  const stepX = (w - pad * 2) / (history.length - 1);
+  const points = history
+    .map((p, i) => {
+      const x = pad + i * stepX;
+      const y = h - pad - (p.score / max) * (h - pad * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  const labels = history
+    .map((p, i) => {
+      const x = pad + i * stepX;
+      const y = h - pad + 14;
+      return `<text x="${x.toFixed(1)}" y="${y}" font-size="10" fill="#6b7280" text-anchor="middle">${escapeHtml(String(p.date).slice(0, 10))}</text>`;
+    })
+    .join("\n");
+  return `<svg width="100%" viewBox="0 0 ${w} ${h}" role="img" aria-label="adoption trend">
+<polyline fill="none" stroke="#2563eb" stroke-width="2" points="${points}" />
+${labels}
+</svg><p class="legend">combined adoption trend (${history.length} snapshots)</p>`;
+}
+
+/**
  * v11.0 cross-org adoption rollup: aggregate the v9 adoption score per org
  * across a federated mesh, plus one combined score.
  *

@@ -1,6 +1,6 @@
 {
   "name": "@token-to-css/connectors",
-  "version": "12.3.0",
+  "version": "14.0.0",
   "description": "Connector hub plus Figma/Storybook/GitHub/CMS connectors for token-to-css. Depends only on @token-to-css/core.",
   "type": "module",
   "repository": {
@@ -19,14 +19,16 @@
     "./figma.js": "./src/connectors/figma.js",
     "./storybook.js": "./src/connectors/storybook.js",
     "./github.js": "./src/connectors/github.js",
-    "./cms.js": "./src/connectors/cms.js"
+    "./cms.js": "./src/connectors/cms.js",
+    "./flutter.js": "./src/connectors/flutter.js",
+    "./compose.js": "./src/connectors/compose.js"
   },
   "files": [
     "src",
     "index.d.ts"
   ],
   "dependencies": {
-    "@token-to-css/core": "^12.3.0"
+    "@token-to-css/core": "^14.0.0"
   },
   "engines": {
     "node": ">=20"

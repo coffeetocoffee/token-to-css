@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.0.0] - 2026-09-17
+
+### Added — the component layer (v14 breadth) + scale & observability (v13)
+
+`Act 1 / v13` gives the mesh an SRE; `Act 2 / v14` emits the one thing `kit`
+never did — **components**. Major bump: the VS Code extension is deleted
+(MCP tools remain for AI agents), and `reverse` now folds Tailwind-mapped
+var names back to token paths.
+
+- **`kit --components`** (v14 flagship): opt-in themeable primitives —
+  buttons (default/secondary/hover/disabled), inputs (focus/placeholder),
+  cards (elevated/title), `:focus-visible` rings — generated from tokens plus
+  the component contract (`getComponentContract`). Every themeable value is
+  a `var()` reference, so a token edit restyles the primitives end-to-end;
+  the output is plain CSS, lintable by the v9 consumer lint.
+  `buildKit(tokens, { components: true })` returns it as `components`;
+  the CLI writes `components.css`.
+- **Tailwind v4 CSS-first round-trip** (v14): `reverse` auto-detects `@theme`
+  blocks and inverts `TAILWIND_MAP` (`--color-foreground` → `color.text`),
+  so `reverse(convert(tokens, { format: "tailwind" }))` round-trips token
+  values. New explicit `reverseTailwind(css, options)`; kebab collisions
+  keep the documented best-effort leaf-wins behavior.
+- **Flutter / Compose connectors** (v14): `registerFlutterConnector` /
+  `registerComposeConnector` on the v8 SDK (zero core changes) with
+  `{ tokens, theme }` round-trips, `push`/`pull` adapters, and opt-in
+  `flutter` (Dart `TokenColors`/`TokenValues` + `buildTokenTheme`) and
+  `compose` (Kotlin `object TokenColors`) output formats.
+- **`serve` under load** (v13): cached lazy language index + incremental
+  `/completions` (<50ms warm on a 10k-token fixture), off-hot-path SSE
+  fan-out for hundreds of subscribers.
+- **`GET /metrics`** (v13): zero-dep Prometheus exposition — CR counts,
+  pending-CR gauge, subscriber count, fold-latency histogram, token count,
+  adoption-score gauge (`createMetrics`, `src/metrics.js`).
+- **CR audit trail** (v13): change-requests persist to `<tokensPath>.crlog.json`
+  (`--cr-log`) and reload on restart, so approval flows and bisect
+  checkpoints survive.
+- **Adoption dashboards** (v13): `federate --report` renders score trends as
+  an HTML charts page (`buildAdoptionReport`).
+- **Performance CI** (v13): `npm run bench` (`scripts/bench-v13.js`) guards
+  the hot paths; `.github/workflows/bench.yml` runs it per PR.
+
+### Removed — the VS Code extension is gone
+
+- `packages/vscode`, its marketplace/VSIX pipeline (`vscode.yml`,
+  `vsce`/`ovsx`), and all editor-client code are deleted and must never
+  return. The thin-client protocol it spoke (`token-to-css mcp`:
+  `token_info`/`completions`/`diagnostics`) is unchanged and exists for AI
+  agents only. See MIGRATION.md ("From 12.x/13.x to 14.0").
+
+Full suite: **315 tests** (306 → 315; new `test/v14.test.js`).
+
 ## [12.3.0] - 2026-09-06
 
 ### Added — editor parity (v7 lint squiggles, true inline editing, multi-root)
@@ -752,7 +803,8 @@ connectors graduate it.)
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v12.3.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v14.0.0...HEAD
+[14.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v12.3.0...v14.0.0
 [12.3.0]: https://github.com/coffeetocoffee/token-to-css/compare/v12.2.0...v12.3.0
 [12.2.0]: https://github.com/coffeetocoffee/token-to-css/compare/v12.1.0...v12.2.0
 [12.1.0]: https://github.com/coffeetocoffee/token-to-css/compare/v12.0.0...v12.1.0

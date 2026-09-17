@@ -27,8 +27,14 @@ import {
   splitThemes,
   THEME_JS,
 } from "./kit.js";
+import {
+  buildComponentsCSS,
+  getComponentContract,
+  COMPONENT_PREFIX,
+  COMPONENT_TOKENS,
+} from "./components.js";
 import { buildDocsSite, buildExplorerHTML, buildProvenance } from "./docs.js";
-import { reverse, reverseStyleDictionary } from "./reverse.js";
+import { reverse, reverseStyleDictionary, reverseTailwind } from "./reverse.js";
 import { buildNameRegistry, registryFromJSON, setByPath, getByPath } from "./registry.js";
 import { applyReversedIntoSource, computeDrift, canSetPath } from "./sync.js";
 import { parseLocated } from "./locate.js";
@@ -111,8 +117,14 @@ export {
   splitThemes,
   THEME_JS,
 } from "./kit.js";
+export {
+  buildComponentsCSS,
+  getComponentContract,
+  COMPONENT_PREFIX,
+  COMPONENT_TOKENS,
+} from "./components.js";
 export { buildDocsSite, buildExplorerHTML, buildProvenance } from "./docs.js";
-export { reverse, reverseStyleDictionary } from "./reverse.js";
+export { reverse, reverseStyleDictionary, reverseTailwind } from "./reverse.js";
 export {
   buildNameRegistry,
   registryFromJSON,

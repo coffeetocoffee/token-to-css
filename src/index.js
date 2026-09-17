@@ -23,5 +23,7 @@ export {
   loadSnapshots,
   computeOrgAdoption,
   computeFederatedAdoption,
+  buildAdoptionReport,
   scanSource,
 } from "./adopt.js";
+export { createMetrics } from "./metrics.js";

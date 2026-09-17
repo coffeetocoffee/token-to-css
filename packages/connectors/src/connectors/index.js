@@ -39,3 +39,17 @@ export {
   tokensToFigmaVariables,
   figmaVariablesToTokens,
 } from "./figma.js";
+
+export {
+  registerFlutterConnector,
+  tokensToFlutterTheme,
+  flutterThemeToTokens,
+  buildFlutterDart,
+} from "./flutter.js";
+
+export {
+  registerComposeConnector,
+  tokensToComposeTheme,
+  composeThemeToTokens,
+  buildComposeKotlin,
+} from "./compose.js";

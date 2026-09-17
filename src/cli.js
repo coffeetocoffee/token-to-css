@@ -49,7 +49,9 @@ import {
   computeAdoptionScore,
   storeSnapshot,
   loadSnapshots,
+  computeOrgAdoption,
   computeFederatedAdoption,
+  buildAdoptionReport,
 } from "./adopt.js";
 import { createPlaygroundServer, writeStaticPlayground, buildStaticPlayground } from "./playground.js";
 import {
@@ -63,14 +65,19 @@ import {
   registerStorybookConnector,
   registerGithubPrConnector,
   registerCmsConnector,
+  registerFlutterConnector,
+  registerComposeConnector,
 } from "@token-to-css/connectors";
 
 // Eagerly register the built-in connectors' output formats so `-f storybook`,
-// `-f github`, and `-f cms` work out of the box. The connectors register a
-// format; their push/pull remain no-op until configured with a transport.
+// `-f github`, `-f cms`, `-f flutter`, and `-f compose` work out of the box.
+// The connectors register a format; their push/pull remain no-op until
+// configured with a transport.
 registerStorybookConnector({});
 registerGithubPrConnector({});
 registerCmsConnector({});
+registerFlutterConnector({});
+registerComposeConnector({});
 
 const REPEATABLE = new Set(["import", "i", "glob", "g", "output", "o", "mode", "relay"]);
 
@@ -109,7 +116,7 @@ function printHelp() {
 
 Usage:
   token-to-css <input.json> [options]
-  token-to-css kit <input.json> [--out-dir dist] [options]
+  token-to-css kit <input.json> [--out-dir dist] [--components] [options]
   token-to-css lint <input.json> [--contract schema.json] [--json]
   token-to-css reverse <file.css> [-o tokens.json] [--registry names.json]
   token-to-css snapshot <input.json> [-o snap.json]
@@ -118,7 +125,7 @@ Usage:
   token-to-css serve <input.json> [--port 4173] [--playground] [--editor] [--registry] [--relay <peer-url>]
   token-to-css migrate <input.json> --from <path> --to <path> [--codemod <dir>] [--dry-run]
   token-to-css migrate <input.json> --deprecated [--codemod <dir>]
-  token-to-css federate <org.manifest.json> [-o <output>] [--lint] [--team <name>] [--adopt <dir>]
+  token-to-css federate <org.manifest.json> [-o <output>] [--lint] [--team <name>] [--adopt <dir>] [--report]
   token-to-css federate <fed.manifest.json> [--org <name>] [--adopt <dir>]   (cross-org, v11)
   token-to-css govern <input.json> [--version <semver>] [--deprecate <path> --replaced-by <path>]
   token-to-css adopt <tokens.json> <sources...> [--fix] [--report] [--registry] [--snapshots <file>] [--max-distance 0.1]
@@ -130,7 +137,7 @@ Usage:
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); prefix format, e.g. scss:out.scss
-  -f, --format <name>   css | scss | barefoot | css-modules | json | tailwind | style-dictionary | schema | report | docs | ts | js | figma  (default: css)
+  -f, --format <name>   css | scss | barefoot | css-modules | json | tailwind | style-dictionary | schema | report | docs | ts | js | figma | flutter | compose  (default: css)
   -s, --selector <sel>  CSS selector for variables (default: :root)
   -t, --theme <name>    barefoot only: wrap in [data-bf-theme="name"]
   -m, --map <file>      barefoot only: JSON file mapping token names to vars
@@ -151,6 +158,8 @@ Options:
   --check               Dry-run: fail (exit 1) when an -o output is stale vs tokens
   --contract <file>     Enforce required tokens + types via a JSON Schema file
   --out-dir <dir>       Output directory for the kit subcommand (default: dist)
+  --components            With kit: also emit the v14 themeable primitive CSS
+                         (buttons, inputs, cards, focus rings) as components.css
   --json                With lint: print issues as JSON
   --serve              Serve generated outputs on a local HTTP server (with -w)
   --playground         With serve: host the live kit preview + "propose change"
@@ -163,8 +172,10 @@ Options:
   --codemod <dir>      With migrate: write codemod JSON to directory
   --dry-run            With migrate: show changes without writing
   --deprecated         With migrate: generate codemods for all deprecated tokens
-  --team <name>        With federate: filter to a specific team
-  --lint               With federate: run lint across all teams
+   --team <name>        With federate: filter to a specific team
+   --lint               With federate: run lint across all teams
+   --report             With federate --adopt: render the v13 adoption dashboard
+                        (HTML charts page); writes to -o <file> or stdout
   --org <name>         With federate (cross-org): emit/rollup a single org, or all when omitted
   --lock <file>        With federate: check cross-org consumer lockfiles against published packages
   --version <semver>   With govern: set version on all tokens
@@ -190,7 +201,7 @@ Options:
   -h, --help            Show help
 
 Subcommands:
-  kit                 Emit a theme package (theme.css + theme.js + tokens.ts/js + index.html)
+  kit                 Emit a theme package (theme.css + theme.js + tokens.ts/js + index.html [+ components.css with --components])
   lint                Check token health (unused/duplicate/untyped/broken $type/brands)
   reverse <file>      Parse CSS/SCSS back into a token tree (best-effort round-trip)
   snapshot <input>    Write the fully resolved token tree (for cross-version diffing)
@@ -364,6 +375,8 @@ export const KNOWN_FORMATS = [
   "storybook",
   "github",
   "cms",
+  "flutter",
+  "compose",
 ];
 
 function parseOutputs(list, defaultFormat) {
@@ -724,6 +737,7 @@ export function run(argv = process.argv.slice(2)) {
   options.registry = Boolean(args.registry);
   options.playground = Boolean(args.playground);
   options.editor = args.editor !== "false";
+  options.approve = Boolean(args.approve || config.approve);
   options.auth = null;
   if (args.auth || config.auth) {
     const authPath = resolve(process.cwd(), args.auth || config.auth);
@@ -741,6 +755,7 @@ export function run(argv = process.argv.slice(2)) {
   options.check = Boolean(args.check || config.check);
   options.contract = args.contract || config.contract || null;
   options.outDir = args["out-dir"] || args.outDir || config.outDir || "dist";
+  options.components = Boolean(args.components);
 
   const rebuildPaths = () => [
     ...([input, ...imports].filter(Boolean)),
@@ -809,6 +824,7 @@ export function run(argv = process.argv.slice(2)) {
         "tokens.js": kit.jsBindings,
         "index.html": kit.html,
       };
+      if (options.components) files["components.css"] = kit.components;
       for (const [name, content] of Object.entries(files)) {
         writeFileSync(joinPath(outDir, name), content, "utf8");
         console.error(`wrote ${joinPath(outDir, name)}`);
@@ -1247,6 +1263,18 @@ export function run(argv = process.argv.slice(2)) {
             }
           }
           const { orgs, combined } = computeFederatedAdoption(orgTeamTrees, sourcesByOrg);
+          if (args.report) {
+            const report = buildAdoptionReport({ orgs, combined }, { title: "Cross-org token adoption" });
+            const outPath = args.output || args.o;
+            const outStr = Array.isArray(outPath) ? outPath[0] : outPath;
+            if (outStr) {
+              writeFileSync(resolve(process.cwd(), outStr), report, "utf8");
+              console.error(`wrote adoption report to ${outStr}`);
+            } else {
+              process.stdout.write(report);
+            }
+            return 0;
+          }
           console.log("cross-org adoption rollup:");
           for (const [org, info] of Object.entries(orgs)) {
             console.log(`  ${org}: ${info.org.score}% (adopted ${info.org.adopted}, hardcoded ${info.org.hardcoded})`);
@@ -1318,6 +1346,18 @@ export function run(argv = process.argv.slice(2)) {
           sourcesByTeam[team] = files;
         }
         const { teams, org } = computeOrgAdoption(manifest, resolveOrgTree, sourcesByTeam);
+        if (args.report) {
+          const report = buildAdoptionReport({ teams, org }, { title: "Token adoption report" });
+          const outPath = args.output || args.o;
+          const outStr = Array.isArray(outPath) ? outPath[0] : outPath;
+          if (outStr) {
+            writeFileSync(resolve(process.cwd(), outStr), report, "utf8");
+            console.error(`wrote adoption report to ${outStr}`);
+          } else {
+            process.stdout.write(report);
+          }
+          return 0;
+        }
         console.log("adoption rollup:");
         for (const [team, info] of Object.entries(teams)) {
           console.log(`  ${team}: ${info.score}% (adopted ${info.adopted}, hardcoded ${info.hardcoded})`);
@@ -1357,7 +1397,7 @@ export function run(argv = process.argv.slice(2)) {
     }
   }
 
-  if (sub === "govern") {
+    if (sub === "govern") {
     try {
       if (!input) {
         console.error("error: govern requires an input file: token-to-css govern <input.json>");

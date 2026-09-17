@@ -1,5 +1,10 @@
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, existsSync, watch } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  watch,
+} from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import {
   normalizeW3C,
@@ -19,6 +24,7 @@ import {
 import { buildEditorHTML, previewEdit } from "./editor.js";
 import { getConnector, listConnectors } from "@token-to-css/connectors";
 import { handleRelayPost, relayChange } from "./relay.js";
+import { createMetrics } from "./metrics.js";
 
 function readJSON(p) {
   return JSON.parse(readFileSync(p, "utf8"));
@@ -39,8 +45,10 @@ export function resolveTree(raw, { mode, brand } = {}) {
     delete base[brandKey];
   }
   const merged = structuredClone(base);
-  if (modeKey && mode && tree[modeKey][mode]) deepMerge(merged, tree[modeKey][mode]);
-  if (brandKey && brand && tree[brandKey][brand]) deepMerge(merged, tree[brandKey][brand]);
+  if (modeKey && mode && tree[modeKey][mode])
+    deepMerge(merged, tree[modeKey][mode]);
+  if (brandKey && brand && tree[brandKey][brand])
+    deepMerge(merged, tree[brandKey][brand]);
   return resolveReferences(merged, { reduce: true });
 }
 
@@ -112,6 +120,173 @@ document.getElementById("propose").addEventListener("click",async ()=>{
 `;
 }
 
+const DIMENSION_RE = /^\s*-?\d*\.?\d+(px|rem|em|%|pt|vh|vw|ch|ex|fr|vmin|vmax)\s*$/;
+
+/** Count resolved leaf tokens in a raw tree (for the `token_to_css_token_count` gauge). */
+function countTokens(node) {
+  let n = 0;
+  const walk = (x) => {
+    if (x && typeof x === "object" && !Array.isArray(x)) {
+      if ("$value" in x) {
+        n++;
+        return;
+      }
+      for (const v of Object.values(x)) walk(v);
+    } else if (x !== null && x !== undefined) {
+      n++;
+    }
+  };
+  walk(node);
+  return n;
+}
+
+function kebabVar(path) {
+  const name = path
+    .map((s) =>
+      String(s)
+        .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+        .replace(/[\s_]+/g, "-")
+        .toLowerCase()
+    )
+    .join("-");
+  return `--${name}`;
+}
+
+/**
+ * Build the language index used for the v13 incremental `/completions` endpoint
+ * and the lazy explorer. Computed once per token-tree version and cached on the
+ * server; recomputed only when `sourceTree` changes (setTokens/loadFromDisk).
+ * Returns `{ paths, entries, deprecations }` where:
+ *  - `paths` is the sorted list of dotted token paths;
+ *  - `entries` maps a dotted path to `{ variable, value, kind, deprecated,
+ *    replacedBy }`;
+ *  - `deprecations` maps a dotted path to its `replacedBy`.
+ * Because the index is cached, completions never re-walk the whole tree per
+ * keystroke — they scan a flat, pre-sorted array.
+ */
+function buildLangIndex(raw) {
+  const resolved = resolveReferences(normalizeW3C(raw), { reduce: true });
+  const entries = {};
+  const deprecations = {};
+  const walk = (node, prefix) => {
+    for (const [key, value] of Object.entries(node)) {
+      const p = [...prefix, key];
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        walk(value, p);
+      } else if (value !== null && value !== undefined) {
+        const dotted = p.join(".");
+        const str = String(value);
+        const variable = kebabVar(p);
+        const parsed =
+          /^#|rgb\(|rgba\(|hsl\(|hsla\(|oklch\(|oklab\(|lab\(|lch\(/.test(str);
+        const kind = parsed
+          ? "color"
+          : DIMENSION_RE.test(str)
+            ? "dimension"
+            : "text";
+        entries[dotted] = { path: dotted, variable, value: str, kind, deprecated: false, replacedBy: null };
+      }
+    }
+  };
+  walk(resolved, []);
+
+  // Deprecations live on the raw tree (normalizeW3C strips them from leaves).
+  const walkDep = (node, prefix) => {
+    if (node && typeof node === "object" && !Array.isArray(node)) {
+      if ("$value" in node) {
+        if (node.deprecated) {
+          const dotted = prefix.join(".");
+          deprecations[dotted] = node.replacedBy || null;
+          if (entries[dotted]) {
+            entries[dotted].deprecated = true;
+            entries[dotted].replacedBy = node.replacedBy || null;
+          }
+        }
+        return;
+      }
+      for (const [k, v] of Object.entries(node)) walkDep(v, [...prefix, k]);
+    }
+  };
+  walkDep(raw, []);
+
+  return {
+    paths: Object.keys(entries).sort(),
+    entries,
+    deprecations,
+  };
+}
+
+/** Lower bound of the first path >= `prefix` (case-insensitive). */
+function lowerBound(paths, prefix) {
+  let lo = 0;
+  let hi = paths.length;
+  const p = prefix.toLowerCase();
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (paths[mid].toLowerCase() < p) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * Incremental completions over the cached language index. `prefix` filters by
+ * prefix match on the dotted path (fast binary-search slice) and falls back to a
+ * substring scan only when the prefix yields no path-prefix hits, so common
+ * keystrokes stay within the sorted slice.
+ */
+function incrementalCompletions(index, { prefix = "", kind = "css", max = 200 } = {}) {
+  const p = String(prefix).toLowerCase();
+  const out = [];
+  const seen = new Set();
+  const push = (dotted) => {
+    if (seen.has(dotted)) return;
+    seen.add(dotted);
+    const e = index.entries[dotted];
+    const label = kind === "ref" ? `{${dotted}}` : e.variable;
+    const lowLabel = label.toLowerCase();
+    if (p && !lowLabel.startsWith(p) && !dotted.toLowerCase().startsWith(p)) return;
+    out.push({
+      label,
+      path: dotted,
+      value: e.value,
+      variable: e.variable,
+      kind: e.deprecated ? "deprecated" : e.kind,
+      deprecated: e.deprecated,
+      replacedBy: e.replacedBy,
+      detail: e.deprecated
+        ? `deprecated — use ${e.replacedBy || "a replacement"}`
+        : e.value,
+    });
+    if (out.length >= max) return false;
+    return true;
+  };
+
+  if (p) {
+    // Fast path: scan the sorted prefix slice.
+    let i = lowerBound(index.paths, p);
+    while (i < index.paths.length) {
+      const path = index.paths[i];
+      if (!path.toLowerCase().startsWith(p)) break;
+      if (push(path) === false) break;
+      i++;
+    }
+    // Slow path: prefix may match inside a variable name (e.g. "col" within
+    // "--color-primary") without being a path-prefix; only when fast path found
+    // nothing, scan the whole sorted array once.
+    if (out.length === 0) {
+      for (const path of index.paths) {
+        if (push(path) === false) break;
+      }
+    }
+  } else {
+    for (const path of index.paths) {
+      if (push(path) === false) break;
+    }
+  }
+  return { completions: out, total: index.paths.length };
+}
+
 /**
  * Create a live token server — the v5.0 "Token Server" mesh.
  *
@@ -119,9 +294,13 @@ document.getElementById("propose").addEventListener("click",async ()=>{
  * - `GET /tokens/<dotted.path>` returns a single resolved value (or 404).
  * - `GET /tokens.names.json` returns the canonical name registry (if enabled).
  * - `GET /events` is an SSE stream that pushes `{ tree }` on every change.
+ * - `GET /completions[?prefix=&kind=css|ref&max=]` returns incremental
+ *   completions from a cached language index (v13).
+ * - `GET /metrics` returns Prometheus exposition text (v13).
  * - `POST /tokens` (write scope) folds a submitted tree into `tokens.json` via
  *   `applyReversedIntoSource` and re-broadcasts to all subscribers. Idempotent:
- *   a no-op submission does not re-trigger a write loop.
+ *   a no-op submission does not re-trigger a write loop. With `--approve`, the
+ *   edit is recorded as a change-request (persisted, v13) instead of a write.
  * - `GET /` serves the explorer or, with `playground`, the live playground.
  * - `GET /tokens-client.js` serves the generated client SDK.
  *
@@ -132,8 +311,15 @@ document.getElementById("propose").addEventListener("click",async ()=>{
  * rejected with 403 and the source file is never mutated). With no `auth`, the
  * server is open (legacy behavior).
  *
- * Returns the `http.Server` with `.broadcast(event)` and `.setTokens(tree)`
- * helpers so connectors (e.g. the Figma connector) can push into the mesh.
+ * v13 additions:
+ *  - `options.crLog`: path to persist the change-request audit log so approval
+ *    flows and v10 bisect survive a restart. Defaults to
+ *    `<tokensPath>.crlog.json` when a tokens path is available.
+ *  - `server.metrics` exposes the Prometheus registry.
+ *
+ * Returns the `http.Server` with `.broadcast(event)`, `.setTokens(tree)`,
+ * `.metrics`, and `.closeAll()` helpers so connectors (e.g. the Figma connector)
+ * can push into the mesh.
  */
 export function createTokenServer(options = {}) {
   const tokensPath = options.tokensPath ? resolvePath(options.tokensPath) : null;
@@ -165,6 +351,103 @@ export function createTokenServer(options = {}) {
   const changeRequests = [];
   let watcher = null;
 
+  const metrics = createMetrics();
+  // v13 — adoption score gauge (0–100). Seeds to 0; adoption reporting tooling
+  // updates it as consumer-source scores become available.
+  metrics.setGauge(
+    "token_to_css_adoption_score",
+    "Current design-token adoption score (0-100); updated by adoption reporting",
+    null,
+    0
+  );
+  metrics.setGauge(
+    "token_to_css_token_count",
+    "Number of resolved design tokens served by this server",
+    null,
+    countTokens(sourceTree)
+  );
+  let langIndex = null;
+  let langIndexSource = null;
+  const getLangIndex = () => {
+    if (langIndex && langIndexSource === sourceTree) return langIndex;
+    langIndex = buildLangIndex(sourceTree);
+    langIndexSource = sourceTree;
+    metrics.setGauge(
+      "token_to_css_token_count",
+      "Number of resolved design tokens served by this server",
+      null,
+      langIndex.paths.length
+    );
+    return langIndex;
+  };
+
+  // v13 — change-request audit trail. Persist the CR log so approval flows and
+  // v10 bisect survive a restart.
+  const crLogPath =
+    options.crLog !== undefined
+      ? options.crLog
+      : tokensPath
+        ? `${tokensPath}.crlog.json`
+        : null;
+
+  function updateSubscriberGauge() {
+    let total = clients.size;
+    for (const set of channelClients.values()) total += set.size;
+    for (const set of teamClients.values()) total += set.size;
+    metrics.setGauge("token_to_css_subscribers", "Number of connected SSE/event subscribers", null, total);
+  }
+
+  function updateCrMetrics() {
+    let pending = 0;
+    const byStatus = {};
+    for (const cr of changeRequests) {
+      byStatus[cr.status] = (byStatus[cr.status] || 0) + 1;
+      if (cr.status === "pending") pending += 1;
+    }
+    for (const [status, count] of Object.entries(byStatus)) {
+      metrics.setGauge(
+        "token_to_css_change_requests_status",
+        "Change-request counts by status",
+        { status },
+        count
+      );
+    }
+    metrics.setGauge(
+      "token_to_css_change_requests_pending",
+      "Number of pending change-requests awaiting approval",
+      null,
+      pending
+    );
+  }
+
+  function saveCrLog() {
+    if (!crLogPath) return;
+    try {
+      writeFileSync(crLogPath, `${JSON.stringify(changeRequests, null, 2)}\n`, "utf8");
+    } catch {
+      /* log persistence is best-effort */
+    }
+  }
+
+  // Reload a persisted CR log on boot so governance survives a restart.
+  if (crLogPath && existsSync(crLogPath)) {
+    try {
+      const loaded = JSON.parse(readFileSync(crLogPath, "utf8"));
+      if (Array.isArray(loaded) && loaded.length) {
+        for (const cr of loaded) changeRequests.push(cr);
+        metrics.seedCounter(
+          "token_to_css_change_requests_total",
+          "Total change-requests created (by status)",
+          { status: "loaded" },
+          loaded.length
+        );
+      }
+    } catch {
+      /* corrupt log: start fresh */
+    }
+  }
+  updateCrMetrics();
+
   function snapshotTree(channel) {
     const base =
       channel === "canary" && channelTrees.canary ? channelTrees.canary : sourceTree;
@@ -173,24 +456,24 @@ export function createTokenServer(options = {}) {
 
   function broadcastChannel(channel, event) {
     const payload = `data: ${JSON.stringify(event)}\n\n`;
-    if (channel !== "canary") {
-      for (const res of clients) {
-        try {
-          res.write(payload);
-        } catch {
-          clients.delete(res);
-        }
+    const write = (res) => {
+      try {
+        res.write(payload);
+      } catch {
+        clients.delete(res);
+        for (const set of channelClients.values()) set.delete(res);
+        for (const set of teamClients.values()) set.delete(res);
       }
+    };
+    // v13: fan-out to hundreds of subscribers without blocking the event loop.
+    // Snapshot the subscriber set and schedule writes off the hot path so a slow
+    // client socket can never stall token updates for the others.
+    if (channel !== "canary") {
+      for (const res of Array.from(clients)) queueMicrotask(() => write(res));
     }
     const set = channelClients.get(channel);
     if (set) {
-      for (const res of set) {
-        try {
-          res.write(payload);
-        } catch {
-          set.delete(res);
-        }
-      }
+      for (const res of Array.from(set)) queueMicrotask(() => write(res));
     }
   }
 
@@ -205,6 +488,7 @@ export function createTokenServer(options = {}) {
     try {
       sourceTree = readJSON(tokensPath);
       channelTrees.stable = sourceTree;
+      langIndex = null; // invalidate cached language index
       pushUpdate("stable");
     } catch {
       /* ignore unreadable edits */
@@ -214,6 +498,7 @@ export function createTokenServer(options = {}) {
   function setTokens(tree) {
     sourceTree = tree;
     channelTrees.stable = sourceTree;
+    langIndex = null; // invalidate cached language index
     if (registry) registry = buildNameRegistry(sourceTree);
     pushUpdate("stable");
   }
@@ -271,6 +556,13 @@ export function createTokenServer(options = {}) {
       }
     }
 
+    if (req.method === "GET" && path === "/metrics") {
+      updateSubscriberGauge();
+      res.writeHead(200, { "content-type": "text/plain; version=0.0.4; charset=utf-8" });
+      res.end(metrics.scrape());
+      return;
+    }
+
     if (req.method === "GET" && path === "/tokens-client.js") {
       res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
       res.end(clientJs);
@@ -283,25 +575,45 @@ export function createTokenServer(options = {}) {
       return;
     }
 
+    // v13 — incremental completions over the cached language index.
+    if (req.method === "GET" && path === "/completions") {
+      const prefix = q.get("prefix") || "";
+      const kind = q.get("kind") || "css";
+      const max = Number(q.get("max")) || 200;
+      const result = incrementalCompletions(getLangIndex(), { prefix, kind, max });
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify(result, null, 2));
+      return;
+    }
+
     if (req.method === "GET" && path === "/events") {
       const channel = q.get("channel") || "stable";
       res.writeHead(200, {
         "content-type": "text/event-stream; charset=utf-8",
         "cache-control": "no-cache",
-        "connection": "keep-alive",
+        connection: "keep-alive",
       });
       res.write(`data: ${JSON.stringify({ type: "snapshot", channel, tree: snapshotTree(channel) })}\n\n`);
-      if (channel === "canary") {
-        if (!channelClients.has("canary")) channelClients.set("canary", new Set());
-        channelClients.get("canary").add(res);
-      } else {
-        clients.add(res);
-      }
-      req.on("close", () => {
+      const target =
+        channel === "canary"
+          ? (channelClients.get("canary") || channelClients.set("canary", new Set()).get("canary"))
+          : clients;
+      target.add(res);
+      // A dropped client (abort / reset) must not crash the server.
+      res.on("error", () => {
+        target.delete(res);
         clients.delete(res);
         const set = channelClients.get(channel);
         if (set) set.delete(res);
+        updateSubscriberGauge();
       });
+      req.on("close", () => {
+        target.delete(res);
+        const set = channelClients.get(channel);
+        if (set) set.delete(res);
+        updateSubscriberGauge();
+      });
+      updateSubscriberGauge();
       return;
     }
 
@@ -312,6 +624,7 @@ export function createTokenServer(options = {}) {
       req.on("end", () => {
         try {
           const incoming = JSON.parse(body);
+          const t0 = performance.now();
 
           // Canary channel: fold the change into the staging tree only. The
           // source file is never touched until the change is promoted.
@@ -327,20 +640,47 @@ export function createTokenServer(options = {}) {
           if (approvalMode) {
             const cr = createChangeRequest(sourceTree, incoming, { author: "api" });
             changeRequests.push(cr);
-            broadcastChannel("stable", { type: "change-request", channel: "stable", cr: { id: cr.id, status: cr.status } });
+            metrics.incrementCounter(
+              "token_to_css_change_requests_total",
+              "Total change-requests created (by status)",
+              { status: "created" }
+            );
+            updateCrMetrics();
+            saveCrLog();
+            broadcastChannel("stable", {
+              type: "change-request",
+              channel: "stable",
+              cr: { id: cr.id, status: cr.status },
+            });
             res.writeHead(202, { "content-type": "application/json" });
-            res.end(JSON.stringify({ ok: true, pending: true, cr: { id: cr.id, status: cr.status } }));
+            res.end(
+              JSON.stringify({ ok: true, pending: true, cr: { id: cr.id, status: cr.status } })
+            );
             return;
           }
 
           if (!tokensPath) {
             const { source, changed } = applyReversedIntoSource(sourceTree, incoming);
+            const dt = (performance.now() - t0) / 1000;
+            metrics.observeHistogram(
+              "token_to_css_fold_latency_seconds",
+              "Latency of folding a proposed edit into the token tree",
+              null,
+              dt
+            );
             res.writeHead(200, { "content-type": "application/json" });
             res.end(JSON.stringify({ ok: true, source: "in-memory", changed: changed.length }));
             setTokens(source);
             return;
           }
           const { source, changed, skipped } = applyReversedIntoSource(sourceTree, incoming);
+          const dt = (performance.now() - t0) / 1000;
+          metrics.observeHistogram(
+            "token_to_css_fold_latency_seconds",
+            "Latency of folding a proposed edit into the token tree",
+            null,
+            dt
+          );
           if (changed.length === 0 && skipped.length === 0) {
             res.writeHead(200, { "content-type": "application/json" });
             res.end(JSON.stringify({ ok: true, changed: 0 }));
@@ -348,11 +688,13 @@ export function createTokenServer(options = {}) {
           }
           writeFileSync(tokensPath, `${JSON.stringify(source, null, 2)}\n`, "utf8");
           sourceTree = source;
-          channelTrees.stable = source;
+          channelTrees.stable = sourceTree;
           if (registry) registry = buildNameRegistry(sourceTree);
           pushUpdate("stable");
           res.writeHead(200, { "content-type": "application/json" });
-          res.end(JSON.stringify({ ok: true, changed: changed.length, skipped: skipped.length }));
+          res.end(
+            JSON.stringify({ ok: true, changed: changed.length, skipped: skipped.length })
+          );
         } catch (err) {
           res.writeHead(400, { "content-type": "application/json" });
           res.end(JSON.stringify({ ok: false, error: err.message }));
@@ -449,7 +791,9 @@ export function createTokenServer(options = {}) {
           res.end(JSON.stringify(result, null, 2));
         } catch (err) {
           res.writeHead(400, { "content-type": "application/json" });
-          res.end(JSON.stringify({ ok: false, errors: [{ code: "bad-request", message: err.message }] }));
+          res.end(
+            JSON.stringify({ ok: false, errors: [{ code: "bad-request", message: err.message }] })
+          );
         }
       });
       return;
@@ -479,6 +823,8 @@ export function createTokenServer(options = {}) {
         sourceTree = tree;
         channelTrees.stable = sourceTree;
         if (registry) registry = buildNameRegistry(sourceTree);
+        updateCrMetrics();
+        saveCrLog();
         pushUpdate();
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: true, cr }));
@@ -503,6 +849,8 @@ export function createTokenServer(options = {}) {
         try {
           const { reason } = body ? JSON.parse(body) : {};
           rejectChangeRequest(cr, reason);
+          updateCrMetrics();
+          saveCrLog();
           res.writeHead(200, { "content-type": "application/json" });
           res.end(JSON.stringify({ ok: true, cr }));
         } catch (err) {
@@ -530,6 +878,7 @@ export function createTokenServer(options = {}) {
             res.end(JSON.stringify({ ok: false, error: "relay body must be { origin, tree }" }));
             return;
           }
+          const before = changeRequests.length;
           const result = handleRelayPost(
             {
               sourceTree,
@@ -539,6 +888,16 @@ export function createTokenServer(options = {}) {
             origin,
             tree
           );
+          if (changeRequests.length > before) {
+            metrics.incrementCounter(
+              "token_to_css_change_requests_total",
+              "Total change-requests created (by status)",
+              { status: "relayed" },
+              changeRequests.length - before
+            );
+            updateCrMetrics();
+            saveCrLog();
+          }
           res.writeHead(result.ok ? 200 : 400, { "content-type": "application/json" });
           res.end(JSON.stringify(result));
         } catch (err) {
@@ -574,13 +933,22 @@ export function createTokenServer(options = {}) {
           "cache-control": "no-cache",
           connection: "keep-alive",
         });
-        res.write(`data: ${JSON.stringify({ type: "snapshot", team, tree: snapshotTree().teams?.[team] })}\n\n`);
+        res.write(
+          `data: ${JSON.stringify({ type: "snapshot", team, tree: snapshotTree().teams?.[team] })}\n\n`
+        );
         if (!teamClients.has(team)) teamClients.set(team, new Set());
-        teamClients.get(team).add(res);
-        req.on("close", () => {
-          const set = teamClients.get(team);
-          if (set) set.delete(res);
+        const set = teamClients.get(team);
+        set.add(res);
+        res.on("error", () => {
+          set.delete(res);
+          updateSubscriberGauge();
         });
+        req.on("close", () => {
+          const s = teamClients.get(team);
+          if (s) s.delete(res);
+          updateSubscriberGauge();
+        });
+        updateSubscriberGauge();
         return;
       }
 
@@ -705,6 +1073,20 @@ export function createTokenServer(options = {}) {
   server.setTokens = setTokens;
   server.snapshotTree = snapshotTree;
   server.changeRequests = changeRequests;
+  server.metrics = metrics;
+  server.getLangIndex = getLangIndex;
+  // Test seam: inject a synthetic subscriber (any object with `write`/`end`/`on`)
+  // so fan-out can be exercised at scale without provisioning real OS sockets.
+  server.addSubscriber = (res) => {
+    clients.add(res);
+    updateSubscriberGauge();
+  };
+  server.removeSubscriber = (res) => {
+    clients.delete(res);
+    updateSubscriberGauge();
+  };
+  server.crLogPath = crLogPath;
+  server.saveCrLog = saveCrLog;
   // v11.0 org identity + helpers for the relay mesh.
   server.org = selfOrg;
   server.getSourceTree = () => sourceTree;
@@ -728,6 +1110,7 @@ export function createTokenServer(options = {}) {
     clients.clear();
     channelClients.clear();
     teamClients.clear();
+    updateSubscriberGauge();
   };
   return server;
 }
