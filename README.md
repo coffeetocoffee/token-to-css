@@ -9,7 +9,7 @@ Zero deps · Node 20+ · CSS, themes, docs & a live mesh — from one JSON file.
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![GitHub Release](https://img.shields.io/github/v/release/coffeetocoffee/token-to-css)](https://github.com/coffeetocoffee/token-to-css/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v14.0.0](https://img.shields.io/badge/phase-14.0.0%20%E2%80%94%20component%20layer-2b7a4f)](https://github.com/coffeetocoffee/token-to-css)
+[![v15.0.0](https://img.shields.io/badge/phase-15.0.0%20%E2%80%94%20AI%20native%20token%20ops-7c3aed)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 </div>
@@ -80,7 +80,7 @@ See all formats + flags with `token-to-css --help`.
 
 **Server & editor** — `serve` gives REST (`GET /tokens`), SSE (`/events`), `POST /tokens` two-way, `--auth`, `--canary`, `--approve` change-requests, team rooms, `--relay` org mesh, connectors (`GET/POST /connectors`). Visual editor at `GET /editor` with diff-before-commit + semver verdict.
 
-**Playground** — `playground` for hosted sessions, `playground --static` for a browser-only build. AI agents talk to tokens via `token-to-css mcp`.
+**Playground** — `playground` for hosted sessions, `playground --static` for a browser-only build. AI agents talk to tokens via `token-to-css mcp` — batch change-requests, migration codemods, `suggest-name`/`group-tokens` sampling, token search, and `/explain` provenance.
 
 **Mesh** — `federate` teams + cross-org releases · `migrate` + `govern` renames with impact graph · `adopt --fix` rewrites hardcoded values · `release` / `lock` / `bisect` for semver + time travel · `registerConnector` / `registerFormat` / `registerFunction` plugins · slim installs via `@token-to-css/core` + `@token-to-css/connectors`.
 

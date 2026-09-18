@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [15.0.0] - 2026-09-18
+
+### Added — AI-native token ops (v15)
+
+Agents move from *querying* the mesh to proposing, migrating, and explaining
+tokens through the same governed write scope a human editor uses. Every tool
+lands in MCP chats and in the browser at once — the batch/migration machinery
+rides the existing editor + serve routes.
+
+- **Batch change-requests**: `previewBatchEdit` / `buildBatchCommit`
+  (`src/editor.js`) sequence multi-token edits (a later edit may reference a
+  token an earlier edit added), validate each against the running tree, and
+  classify the whole batch once with `classifyRelease`. The MCP
+  `create_batch_change_request` tool opens ONE change request for a multi-token
+  proposal — with a `serveUrl` the proposed tree lands as a single pending CR
+  (202 under `--approve`), approved or rejected as a unit.
+- **Agent-authored migrations**: the MCP `create_migration_request` tool
+  attaches the ready-to-run v7 codemod (rename + update-ref operations) to a
+  rename CR, tagged `cr.migration`; governance gates the merge, the codemod
+  migrates consumers.
+- **MCP sampling tools**: `suggest_name` (kebab-clean names under the right
+  group, collisions disambiguated with the name registry's own `-N` rule — the
+  name the linter and registry accept) and `group_tokens` (moves tokens under a
+  common parent as one codemod; `by` heuristics: value/kind/prefix).
+- **Token search + provenance**: the MCP `search` tool (lexical semantic search
+  over the tree — segment/variable/kind/value matching with a completeness
+  bonus, zero-dep) and `explain` (provenance: resolved value, refs consumed,
+  direct/transitive dependents, deprecation + `replacedBy`, per-mode/brand
+  overrides, `$version`).
+- **Serve parity**: `GET /explain?path=` serves the provenance payload;
+  `POST /editor/preview` accepts an edit array (batch preview, classified once).
+- New public library surface in `src/ai.js`: `suggestTokenName`,
+  `proposeGrouping`, `groupTokens`, `searchTokens`, `explainToken` — all
+  re-exported from the meta package, zero-dep and side-effect-free.
+- MCP `serverInfo` version now reports the package version. 27 new tests in
+  `test/v15.test.js`; full suite 342.
+
+### Changed
+- Bumped `@token-to-css/core` and `@token-to-css/connectors` to 15.0.0 in
+  lockstep with the root package.
+
 ## [14.0.0] - 2026-09-17
 
 ### Added — the component layer (v14 breadth) + scale & observability (v13)
@@ -803,7 +844,8 @@ connectors graduate it.)
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v14.0.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v15.0.0...HEAD
+[15.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v14.0.0...v15.0.0
 [14.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v12.3.0...v14.0.0
 [12.3.0]: https://github.com/coffeetocoffee/token-to-css/compare/v12.2.0...v12.3.0
 [12.2.0]: https://github.com/coffeetocoffee/token-to-css/compare/v12.1.0...v12.2.0

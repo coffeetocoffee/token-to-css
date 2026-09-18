@@ -264,7 +264,107 @@ export function previewEdit(source, edit = {}) {
     ? generateCodemod(source, { from: edit.rename.from, to: edit.rename.to })
     : null;
 
-  return { ok: errors.length === 0, errors, changed, diff, verdict, blocked, impact, codemod };
+  return { ok: errors.length === 0, errors, changed, proposed: nextSource, diff, verdict, blocked, impact, codemod };
+}
+
+/**
+ * Apply a sequence of editor edits to a source tree (pure — returns a new
+ * tree). Each edit sees the result of the previous one, so a batch can create
+ * a token and reference it in a later edit. Bad edits are collected, not
+ * thrown: the caller decides whether a partial application is acceptable.
+ *
+ * Returns `{ source, changed, errors }` where `changed` is the per-edit
+ * record (`{ index, ...buildEditCommit.changed }`).
+ */
+export function buildBatchCommit(source, edits = []) {
+  let out = structuredClone(source);
+  const changed = [];
+  const errors = [];
+  (Array.isArray(edits) ? edits : []).forEach((edit, index) => {
+    try {
+      const commit = buildEditCommit(out, edit);
+      out = commit.source;
+      changed.push({ index, ...commit.changed });
+    } catch (err) {
+      errors.push({ index, code: "commit-failed", message: err.message });
+    }
+  });
+  return { source: out, changed, errors };
+}
+
+/**
+ * Diff-before-commit for a *batch*: multi-token proposals reviewed as one unit
+ * and classified once by `classifyRelease`. Validation is per-edit against the
+ * running tree (so a later edit may reference a token an earlier edit added);
+ * the diff, the semver verdict, the aggregated impact, and the rename codemods
+ * describe the whole batch. Never mutates the source.
+ *
+ * `blocked` is true when the batch's verdict is major and the caller has not
+ * confirmed it — same rule as `previewEdit`.
+ */
+export function previewBatchEdit(source, edits = [], options = {}) {
+  const list = Array.isArray(edits) ? edits : [];
+  const validation = [];
+  let running = source;
+  list.forEach((edit, index) => {
+    const errs = edit.rename
+      ? !edit.rename.from || !edit.rename.to
+        ? [{ code: "bad-rename", message: "rename requires from and to" }]
+        : []
+      : validateEditValue(edit.value, running);
+    if (errs.length) {
+      validation.push({ index, errors: errs });
+      return;
+    }
+    running = buildEditCommit(running, edit).source;
+  });
+
+  const ok = validation.length === 0;
+  let nextSource = null;
+  let changed = [];
+  if (ok) {
+    const commit = buildBatchCommit(source, list);
+    nextSource = commit.source;
+    changed = commit.changed;
+  }
+
+  let diff = { added: {}, removed: {}, changed: {} };
+  let verdict = { bump: "none", removed: [], changed: [], added: [] };
+  if (nextSource) {
+    try {
+      resolveReferences(normalizeW3C(nextSource), { reduce: true });
+    } catch (err) {
+      validation.push({ index: null, errors: [{ code: "resolve-failed", message: err.message }] });
+      return {
+        ok: false,
+        errors: validation,
+        edits: [],
+        diff,
+        verdict,
+        blocked: false,
+        impact: null,
+        codemods: [],
+      };
+    }
+    diff = diffTokens(source, nextSource);
+    verdict = classifyRelease(source, nextSource);
+  }
+
+  const blocked = verdict.bump === "major" && !options.confirmed;
+  const renames = changed.filter((c) => c.type === "rename");
+  const codemods = renames.map((r) => generateCodemod(source, { from: r.from, to: r.to }));
+  const impacted = [
+    ...new Set(
+      list.flatMap((edit) =>
+        edit.rename ? [edit.rename.from] : edit.path ? [edit.path] : []
+      )
+    ),
+  ];
+  const impact = impacted.length
+    ? impacted.map((p) => ({ path: p, ...editImpact(source, p) }))
+    : null;
+
+  return { ok, errors: validation, edits: changed, proposed: nextSource, diff, verdict, blocked, impact, codemods };
 }
 
 function escHtml(s) {

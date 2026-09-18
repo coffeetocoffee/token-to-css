@@ -21,10 +21,11 @@ import {
   rejectChangeRequest,
   applyChangeRequest,
 } from "@token-to-css/core";
-import { buildEditorHTML, previewEdit } from "./editor.js";
+import { buildEditorHTML, previewEdit, previewBatchEdit } from "./editor.js";
 import { getConnector, listConnectors } from "@token-to-css/connectors";
 import { handleRelayPost, relayChange } from "./relay.js";
 import { createMetrics } from "./metrics.js";
+import { explainToken } from "./ai.js";
 
 function readJSON(p) {
   return JSON.parse(readFileSync(p, "utf8"));
@@ -786,7 +787,11 @@ export function createTokenServer(options = {}) {
       req.on("end", () => {
         try {
           const edit = body ? JSON.parse(body) : {};
-          const result = previewEdit(sourceTree, edit);
+          // v15: an array is a batch — every edit reviewed as one unit and
+          // classified once (the same machinery the MCP batch tool rides).
+          const result = Array.isArray(edit)
+            ? previewBatchEdit(sourceTree, edit)
+            : previewEdit(sourceTree, edit);
           res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
           res.end(JSON.stringify(result, null, 2));
         } catch (err) {
@@ -796,6 +801,26 @@ export function createTokenServer(options = {}) {
           );
         }
       });
+      return;
+    }
+
+    // v15: token provenance for agents and the playground — the `/explain`
+    // payload behind the MCP `explain` tool.
+    if (req.method === "GET" && path === "/explain") {
+      const tokenPath = q.get("path");
+      if (!tokenPath) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "explain requires a ?path= argument" }));
+        return;
+      }
+      const info = explainToken(sourceTree, tokenPath);
+      if (!info) {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: `unknown token: ${tokenPath}` }));
+        return;
+      }
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify(info, null, 2));
       return;
     }
 

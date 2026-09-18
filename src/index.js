@@ -11,8 +11,15 @@ export * from "@token-to-css/core";
 export * from "@token-to-css/connectors";
 export { createTokenServer, resolveTree } from "./serve.js";
 export { createPlaygroundServer, buildLandingHTML, buildStaticCSS, buildStaticPlayground, writeStaticPlayground } from "./playground.js";
-export { validateEditValue, buildEditCommit, editImpact, previewEdit, buildEditorHTML } from "./editor.js";
+export { validateEditValue, buildEditCommit, editImpact, previewEdit, previewBatchEdit, buildBatchCommit, buildEditorHTML } from "./editor.js";
 export { createMcpContext, handleMcpMessage } from "./mcp.js";
+export {
+  suggestTokenName,
+  proposeGrouping,
+  groupTokens,
+  searchTokens,
+  explainToken,
+} from "./ai.js";
 export { relayChange, attachOrgRelay, consumeSSE, handleRelayPost } from "./relay.js";
 export {
   buildValueIndex,

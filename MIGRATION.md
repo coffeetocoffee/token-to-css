@@ -217,6 +217,35 @@ extension.
 | ------- | ------------------- |
 | 14.0.0  | Component layer (`kit --components`, `buildComponentsCSS`), Tailwind `@theme` reverse round-trip (`reverseTailwind`), Flutter/Compose connectors + formats, `/metrics`, CR audit log, incremental `/completions`, adoption dashboards, perf CI — and no more VS Code extension |
 
+## From 14.x to 15.0
+
+v15.0 is a **major** because the MCP tool schemas, the batch/migration
+change-request shape, and the `/explain` endpoint are new public,
+agent-facing contracts. Everything else is additive — upgrading is drop-in
+unless you script the MCP tool list.
+
+- **New MCP tools (additive).** `create_batch_change_request` (one CR for a
+  multi-token proposal; `edits` is an array of `{path, value, mode?, brand?}`
+  or `{rename: {from, to}}`), `create_migration_request` (rename CR with the
+  v7 codemod attached), `suggest_name`, `group_tokens`, `search`, and
+  `explain`. The existing tools (`list_tokens`, `impact`,
+  `create_change_request`, `token_info`, `completions`, `diagnostics`) are
+  unchanged. `tools/list` now returns twelve tools.
+- **Serve: new routes, no contract changes.** `GET /explain?path=` returns
+  provenance (404 on unknown path, 400 without `?path=`). `POST /editor/preview`
+  now ALSO accepts a JSON array — a batch preview (`previewBatchEdit`); the
+  single-object shape is unchanged. REST/SSE are otherwise identical.
+- **New library surface (`src/ai.js`, re-exported by the meta package).**
+  `suggestTokenName`, `proposeGrouping`, `groupTokens`, `searchTokens`,
+  `explainToken`, plus `previewBatchEdit` / `buildBatchCommit` in `src/editor.js`.
+  All pure: proposals return tree clones and never mutate.
+- **No removals, no renames.** v14's surface (components, `reverseTailwind`,
+  Flutter/Compose connectors, `/metrics`) is untouched.
+
+| Version | What you can now do |
+| ------- | ------------------- |
+| 15.0.0  | Batch change-requests (one CR per multi-token proposal), agent-authored migrations with attached codemods, `suggest_name`/`group_tokens` sampling, token `search`, `explain` provenance + `GET /explain`, batch `POST /editor/preview` |
+
 ## Stability guarantees (from 1.0.0)
 
 - **CLI flags** will not be removed or renamed except in a major version, and

@@ -5,8 +5,16 @@ import {
   createChangeRequest,
   parseColor,
   getByPath,
+  generateCodemod,
 } from "@token-to-css/core";
 import { lintConsumer } from "./adopt.js";
+import { previewEdit, previewBatchEdit, buildEditCommit } from "./editor.js";
+import {
+  suggestTokenName,
+  groupTokens,
+  searchTokens,
+  explainToken,
+} from "./ai.js";
 
 /**
  * Build an MCP context. `tokens` is the raw token tree; `serveUrl` (optional)
@@ -372,6 +380,100 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "create_batch_change_request",
+    description:
+      "v15: open ONE change request for a multi-token proposal (e.g. a palette shift) — every edit reviewed as a single unit and classified once by the semver verdict. Each edit is { path, value, mode?, brand? } or { rename: { from, to } }; edits apply in sequence (a later edit may reference a token an earlier edit added). With a serve URL the whole proposed tree lands as one pending CR (202 under --approve).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        edits: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              path: { type: "string" },
+              value: {},
+              mode: { type: "string" },
+              brand: { type: "string" },
+              rename: {
+                type: "object",
+                properties: { from: { type: "string" }, to: { type: "string" } },
+              },
+              confirmed: { type: "boolean" },
+            },
+          },
+        },
+        reason: { type: "string" },
+        author: { type: "string" },
+        confirmed: { type: "boolean" },
+      },
+      required: ["edits"],
+    },
+  },
+  {
+    name: "create_migration_request",
+    description:
+      "v15: propose a rename as a governed migration — the change request carries the ready-to-run v7 codemod (rename + update-ref operations) so consumers migrate alongside the token file. Governance gates the merge: the rename lands as one pending CR when a serve URL runs --approve.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string" },
+        to: { type: "string" },
+        reason: { type: "string" },
+        author: { type: "string" },
+        confirmed: { type: "boolean" },
+      },
+      required: ["from", "to"],
+    },
+  },
+  {
+    name: "suggest_name",
+    description:
+      "v15 sampling tool: suggest a token name the linter and the name registry would accept — kebab-clean, under the right group, collisions disambiguated with the registry -N rule. Pass `path` to rename an existing token, or `value` (+ optional `group`/`label`) to name a new one.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        value: {},
+        group: { type: "string" },
+        label: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "group_tokens",
+    description:
+      "v15 sampling tool: propose moving tokens under a common parent (a grouping) — returns the rename operations, the resulting tree, and one v7 codemod that rewrites every reference. Pass `paths` (+ `into`), or omit both to use a `by` heuristic (value/kind/prefix) over the tree. A proposal only — nothing moves until it becomes a migration request.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        paths: { type: "array", items: { type: "string" } },
+        into: { type: "string" },
+        by: { type: "string", enum: ["value", "kind", "prefix"] },
+      },
+    },
+  },
+  {
+    name: "search",
+    description:
+      "v15: lexical search over the token tree (zero-dep). Terms match path segments, the variable name, kind, and value; tokens matching every term rank first. Use before edits to find candidates.",
+    inputSchema: {
+      type: "object",
+      properties: { query: { type: "string" }, max: { type: "number" } },
+      required: ["query"],
+    },
+  },
+  {
+    name: "explain",
+    description:
+      "v15 provenance tool: everything about one token — raw and resolved value, kind + color hex, the references it consumes, its direct/transitive dependents (blast radius), deprecation + replacedBy, per-mode/brand overrides, and its $version. Unknown path → error.",
+    inputSchema: {
+      type: "object",
+      properties: { path: { type: "string" } },
+      required: ["path"],
+    },
+  },
 ];
 
 async function callTool(name, args, ctx) {
@@ -420,6 +522,124 @@ async function callTool(name, args, ctx) {
   if (name === "diagnostics") {
     return diagnosticsPayload(ctx, args);
   }
+  // --- v15: AI-native token ops -------------------------------------------
+  if (name === "create_batch_change_request") {
+    const edits = Array.isArray(args.edits) ? args.edits : [];
+    if (edits.length === 0)
+      throw new Error("create_batch_change_request requires a non-empty 'edits' array");
+    const preview = previewBatchEdit(ctx.tokens, edits, { confirmed: args.confirmed });
+    if (!preview.ok) return { ok: false, errors: preview.errors };
+    if (ctx.serveUrl) {
+      const base = ctx.serveUrl.replace(/\/$/, "");
+      const res = await fetch(`${base}/tokens`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(preview.proposed),
+      });
+      const json = await res.json();
+      return {
+        ok: true,
+        id: json.cr ? json.cr.id : null,
+        status: json.cr ? json.cr.status : json.pending ? "pending" : "applied",
+        pending: Boolean(json.pending || json.cr),
+        edits: preview.edits,
+        verdict: preview.verdict,
+        diff: preview.diff,
+        codemods: preview.codemods,
+      };
+    }
+    const cr = createChangeRequest(ctx.tokens, preview.proposed, {
+      author: args.author,
+      reason: args.reason,
+    });
+    cr.batch = {
+      edits: preview.edits,
+      verdict: preview.verdict,
+      impact: preview.impact,
+      codemods: preview.codemods,
+    };
+    ctx.changeRequests.push(cr);
+    return {
+      ok: true,
+      id: cr.id,
+      status: cr.status,
+      edits: preview.edits,
+      verdict: preview.verdict,
+      diff: preview.diff,
+      impact: preview.impact,
+      codemods: preview.codemods,
+    };
+  }
+  if (name === "create_migration_request") {
+    if (!args.from || !args.to)
+      throw new Error("create_migration_request requires 'from' and 'to'");
+    const preview = previewEdit(ctx.tokens, {
+      rename: { from: args.from, to: args.to },
+      confirmed: args.confirmed,
+    });
+    const codemod = generateCodemod(ctx.tokens, { from: args.from, to: args.to });
+    if (!preview.ok) {
+      return { ok: false, errors: preview.errors, codemod };
+    }
+    if (ctx.serveUrl) {
+      // Governance gates the merge: the folded tree lands as one pending CR;
+      // the codemod rides along for the consumer side.
+      const base = ctx.serveUrl.replace(/\/$/, "");
+      const res = await fetch(`${base}/tokens`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(preview.proposed),
+      });
+      const json = await res.json();
+      return {
+        ok: true,
+        id: json.cr ? json.cr.id : null,
+        status: json.cr ? json.cr.status : json.pending ? "pending" : "applied",
+        pending: Boolean(json.pending || json.cr),
+        from: args.from,
+        to: args.to,
+        codemod,
+        impact: preview.impact,
+        verdict: preview.verdict,
+        blocked: preview.blocked,
+      };
+    }
+    const proposed = buildEditCommit(ctx.tokens, {
+      rename: { from: args.from, to: args.to },
+    }).source;
+    const cr = createChangeRequest(ctx.tokens, proposed, {
+      author: args.author,
+      reason: args.reason || `migrate ${args.from} -> ${args.to}`,
+    });
+    cr.migration = { from: args.from, to: args.to, codemod };
+    ctx.changeRequests.push(cr);
+    return {
+      ok: true,
+      id: cr.id,
+      status: cr.status,
+      from: args.from,
+      to: args.to,
+      codemod,
+      impact: preview.impact,
+      verdict: preview.verdict,
+      blocked: preview.blocked,
+    };
+  }
+  if (name === "suggest_name") {
+    return suggestTokenName(ctx.tokens, args);
+  }
+  if (name === "group_tokens") {
+    return groupTokens(ctx.tokens, args);
+  }
+  if (name === "search") {
+    return searchTokens(ctx.tokens, args.query, { max: args.max });
+  }
+  if (name === "explain") {
+    if (!args.path) throw new Error("explain requires a 'path' argument");
+    const info = explainToken(ctx.tokens, args.path);
+    if (!info) throw new Error(`unknown token: ${args.path}`);
+    return info;
+  }
   throw new Error(`unknown tool: ${name}`);
 }
 
@@ -445,7 +665,7 @@ export function handleMcpMessage(message, ctx) {
       result: {
         protocolVersion: "2024-11-05",
         capabilities: { tools: {} },
-        serverInfo: { name: "token-to-css", version: "12.3.0" },
+        serverInfo: { name: "token-to-css", version: "15.0.0" },
       },
     };
   }

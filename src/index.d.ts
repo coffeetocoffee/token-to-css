@@ -278,6 +278,66 @@ export function validateEditValue(value: string, tree: Tokens): EditError[];
 export function buildEditCommit(source: Tokens, edit: TokenEdit): { source: Tokens; changed: EditCommitChange };
 export function editImpact(source: Tokens, path: string): EditPreview["impact"];
 export function previewEdit(source: Tokens, edit: TokenEdit): EditPreview;
+
+export interface BatchEditPreview {
+  ok: boolean;
+  errors: Array<{ index: number | null; errors: EditError[] }>;
+  edits: Array<EditCommitChange & { index: number }>;
+  proposed: Tokens | null;
+  diff: EditPreview["diff"];
+  verdict: EditPreview["verdict"];
+  blocked: boolean;
+  impact: Array<EditPreview["impact"] & { path: string }> | null;
+  codemods: object[];
+}
+
+export function buildBatchCommit(source: Tokens, edits: TokenEdit[]): { source: Tokens; changed: Array<EditCommitChange & { index: number }>; errors: Array<{ index: number; code: string; message: string }> };
+export function previewBatchEdit(source: Tokens, edits: TokenEdit[], options?: { confirmed?: boolean }): BatchEditPreview;
+
+// --- v15.0: AI-native token ops -------------------------------------------
+
+export interface NameSuggestion {
+  name: string | null;
+  segments?: string[];
+  variable?: string;
+  kind?: string;
+  available: boolean;
+  conflicts: string[];
+  reason?: string;
+}
+
+export interface SearchResult {
+  path: string;
+  value: string;
+  variable: string;
+  kind: string;
+  score: number;
+  matched: string[];
+}
+
+export interface TokenExplanation {
+  path: string;
+  value: string;
+  resolved: unknown;
+  variable: string;
+  kind: string;
+  color: { hex: string } | null;
+  group: string | null;
+  refs: string[];
+  usedBy: { direct: string[]; transitive: string[] };
+  deprecated: boolean;
+  replacedBy: string | null;
+  overrides: Array<{ scope: string; value: string }>;
+  version: string | null;
+  summary: string;
+}
+
+export function suggestTokenName(tokens: Tokens, options?: { path?: string; value?: string; group?: string; label?: string }): NameSuggestion;
+export function proposeGrouping(tokens: Tokens, options?: { by?: "value" | "kind" | "prefix" }): { by: string; groups: Array<{ name: string; paths: string[]; reason: string }> };
+export function groupTokens(tokens: Tokens, options?: { paths?: string[]; into?: string; by?: "value" | "kind" | "prefix" }): { into: string | null; operations: Array<{ type: "rename"; from: string; to: string }>; tree: Tokens; codemod: object | null; conflicts: Array<{ from: string; reason: string }> };
+export function searchTokens(tokens: Tokens, query: string, options?: { max?: number }): { query: string; results: SearchResult[]; total: number };
+export function explainToken(tokens: Tokens, path: string): TokenExplanation | null;
+
 export function buildEditorHTML(tokens: Tokens, options?: { editable?: boolean; canary?: boolean; auth?: boolean }): string;
 
 export function resolveTree(tokens: Tokens, options?: { mode?: string; brand?: string }): Tokens;
