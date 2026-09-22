@@ -59,7 +59,7 @@ import {
   handleMcpMessage,
 } from "./mcp.js";
 import { createTokenServer } from "./serve.js";
-import { expandGlob, globBaseDir } from "./glob.js";
+import { expandGlob, globBaseDir, groupGlobByDir, renderDeepTree } from "./glob.js";
 import { attachOrgRelay } from "./relay.js";
 import {
   registerStorybookConnector,
@@ -134,6 +134,9 @@ Usage:
   token-to-css release <prev.json> <next.json> [--version x.y.z] [--changelog <file>]
   token-to-css lock <lockfile.json> <prev.json> <next.json> [--version x.y.z]
   token-to-css bisect <token.path> --checkpoints <dir>
+  token-to-css expand <pattern...> [--cwd dir] [--json] [--deep]
+  token-to-css expand --refs <file.json> [--path token.path] [--json]
+  token-to-css expand --preview <file.json> [--import <f>] [--glob <g>] [--json]
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); prefix format, e.g. scss:out.scss
@@ -195,10 +198,15 @@ Options:
    --static <dir>       With playground: write the self-contained static site (index.html
                         + playground.js) into <dir> and exit — no server. Optional input
                         file pre-fills the paste box; --serve-url/--token seed proposals
-   --changelog <file>   With release: prepend the generated changelog section to a file
+    --changelog <file>   With release: prepend the generated changelog section to a file
   --checkpoints <dir>  With bisect: directory of ordered snapshot .json checkpoints
-  -n, --no-validate     Skip token validation
-  -h, --help            Show help
+   --deep              With glob: namespace each matched directory as a top-level key (e.g. tokens/brand-a/*.json → merged.brand_a.*) instead of flattening all files into one tree
+   --refs <file>       With expand: token-reference expansion mode
+   --preview <file>    With expand: show per-file token keys and merge summary
+   --path <token.path> With expand --refs: resolve only this specific token and show its ref trace
+   --cwd <dir>         With expand: base directory for glob patterns (default: process.cwd())
+   -n, --no-validate   Skip token validation
+   -h, --help          Show help
 
 Subcommands:
   kit                 Emit a theme package (theme.css + theme.js + tokens.ts/js + index.html [+ components.css with --components])
@@ -218,6 +226,8 @@ Subcommands:
   release <a> <b>     Classify a token diff into a semver bump + changelog
   lock <lock> <a> <b> Check a consumer lockfile against a release for breaking changes
   bisect <token>      Walk checkpoints to find the change that flipped a token value
+  expand              Expand glob patterns to file paths; --refs expands token references; --preview shows per-file token keys and merge summary
+
 `);
 }
 
@@ -238,7 +248,7 @@ function readStdinSync() {
   }
 }
 
-function loadLocated(paths) {
+function loadLocated(paths, deepGroups = []) {
   const merged = {};
   const loc = {};
   const sourcesContent = {};
@@ -247,6 +257,29 @@ function loadLocated(paths) {
     deepMerge(merged, tree);
     Object.assign(loc, l);
     sourcesContent[p] = text;
+  }
+  // --deep: namespace each glob directory as a top-level key
+  // (e.g. tokens/brand-a/colors.json → merged.brand_a.colors.*)
+  for (const { segments, files } of deepGroups) {
+    if (!segments.length) continue; // root-level files already in merged above
+    const subtree = {};
+    const subLoc = {};
+    for (const p of files) {
+      const { tree, loc: l, text } = readLocated(p);
+      deepMerge(subtree, tree);
+      Object.assign(subLoc, l);
+      sourcesContent[p] = text;
+    }
+    // Build the nested target under merged
+    let node = merged;
+    for (const seg of segments) {
+      if (!node[seg] || typeof node[seg] !== "object" || Array.isArray(node[seg])) {
+        node[seg] = {};
+      }
+      node = node[seg];
+    }
+    deepMerge(node, subtree);
+    Object.assign(loc, subLoc);
   }
   return { merged, loc, sourcesContent };
 }
@@ -413,12 +446,12 @@ function safeWrite(path, content) {
   return true;
 }
 
-function generateAll(paths, options, outputs) {
+function generateAll(paths, options, outputs, deepGroups = []) {
   try {
     if (options.mapPath) {
       options.map = JSON.parse(readFileSync(options.mapPath, "utf8"));
     }
-    const { merged, loc, sourcesContent } = loadLocated(paths);
+    const { merged, loc, sourcesContent } = loadLocated(paths, deepGroups);
     if (options.stdinText) {
       const l = parseLocated(options.stdinText, "<stdin>");
       deepMerge(merged, l.tree);
@@ -476,12 +509,12 @@ function generateAll(paths, options, outputs) {
  * Reuses convert/convertToMap for the expected bytes and diffTokens to
  * explain JSON staleness.
  */
-function checkAll(paths, options, outputs) {
+function checkAll(paths, options, outputs, deepGroups = []) {
   try {
     if (options.mapPath) {
       options.map = JSON.parse(readFileSync(options.mapPath, "utf8"));
     }
-    const { merged, loc, sourcesContent } = loadLocated(paths);
+    const { merged, loc, sourcesContent } = loadLocated(paths, deepGroups);
     if (options.stdinText) {
       const l = parseLocated(options.stdinText, "<stdin>");
       deepMerge(merged, l.tree);
@@ -631,6 +664,23 @@ function collect(list) {
   return Array.isArray(list) ? list : [list];
 }
 
+/**
+ * Recursively collect all leaf token values (strings, numbers, booleans) from a
+ * token tree, returning an array of { path: dotted-string, value } objects.
+ * Used by the expand --preview mode to report token counts per source file.
+ */
+function collectLeafPaths(node, prefix = []) {
+  const leaves = [];
+  for (const [k, v] of Object.entries(node)) {
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      leaves.push(...collectLeafPaths(v, [...prefix, k]));
+    } else if (v !== null && v !== undefined) {
+      leaves.push({ path: [...prefix, k].join("."), value: v });
+    }
+  }
+  return leaves;
+}
+
 export function run(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   if (args.help) {
@@ -698,11 +748,12 @@ export function run(argv = process.argv.slice(2)) {
     args._[0] === "playground" ||
     args._[0] === "release" ||
     args._[0] === "bisect" ||
-    args._[0] === "lock"
+    args._[0] === "lock" ||
+    args._[0] === "expand"
       ? args._[0]
       : null;
   const input = sub ? args._[1] : args._[0];
-  if (!input && imports.length === 0 && globs.length === 0 && !args.stdin && sub !== "playground") {
+  if (!input && imports.length === 0 && globs.length === 0 && !args.stdin && sub !== "playground" && sub !== "expand") {
     console.error(
       sub === "kit"
         ? "error: kit requires an input file: token-to-css kit <input.json>"
@@ -756,18 +807,25 @@ export function run(argv = process.argv.slice(2)) {
   options.contract = args.contract || config.contract || null;
   options.outDir = args["out-dir"] || args.outDir || config.outDir || "dist";
   options.components = Boolean(args.components);
+  options.deep = Boolean(args.deep);
 
   const rebuildPaths = () => [
     ...([input, ...imports].filter(Boolean)),
-    ...globs.flatMap((g) => expandGlob(g)),
+    // When --deep is active, glob files are handled via deepGroups instead
+    ...(options.deep ? [] : globs.flatMap((g) => expandGlob(g))),
   ];
+
+  // Deep groups: each directory group becomes a top-level namespace
+  // (e.g. tokens/brand-a/colors.json → merged.brand_a.colors.*)
+  const rebuildDeepGroups = () =>
+    options.deep ? globs.flatMap((g) => groupGlobByDir(g, process.cwd())) : [];
 
   if (sub === "lint") {
     try {
       if (options.mapPath) {
         options.map = JSON.parse(readFileSync(options.mapPath, "utf8"));
       }
-      const { merged } = loadLocated(rebuildPaths());
+      const { merged } = loadLocated(rebuildPaths(), rebuildDeepGroups());
       if (options.stdinText) {
         const l = parseLocated(options.stdinText, "<stdin>");
         deepMerge(merged, l.tree);
@@ -808,7 +866,7 @@ export function run(argv = process.argv.slice(2)) {
       if (options.mapPath) {
         options.map = JSON.parse(readFileSync(options.mapPath, "utf8"));
       }
-      const { merged } = loadLocated(rebuildPaths());
+      const { merged } = loadLocated(rebuildPaths(), rebuildDeepGroups());
       if (options.stdinText) {
         const l = parseLocated(options.stdinText, "<stdin>");
         deepMerge(merged, l.tree);
@@ -885,7 +943,7 @@ export function run(argv = process.argv.slice(2)) {
 
   if (sub === "snapshot") {
     try {
-      const { merged } = loadLocated(rebuildPaths());
+      const { merged } = loadLocated(rebuildPaths(), rebuildDeepGroups());
       const resolved = options.resolve === false ? merged : resolveReferences(merged, { reduce: options.reduce });
       const out = JSON.stringify(resolved, null, 2);
       const o = parseOutputs(collect(args.output || args.o), "json")[0];
@@ -981,7 +1039,7 @@ export function run(argv = process.argv.slice(2)) {
       ];
 
       const generate = () => {
-        const okGen = generateAll(rebuild(), options, outputs);
+        const okGen = generateAll(rebuild(), options, outputs, rebuildDeepGroups());
         for (const o of outputs) if (o.path) markWritten(o.path);
         if (sourceFile) markWritten(sourceFile);
         return okGen;
@@ -1126,7 +1184,7 @@ export function run(argv = process.argv.slice(2)) {
         process.exitCode = 1;
         return 1;
       }
-      const { merged } = loadLocated(rebuildPaths());
+      const { merged } = loadLocated(rebuildPaths(), rebuildDeepGroups());
       const from = args.from;
       const to = args.to;
       const codemodDir = args.codemod;
@@ -1404,7 +1462,7 @@ export function run(argv = process.argv.slice(2)) {
         process.exitCode = 1;
         return 1;
       }
-      const { merged } = loadLocated(rebuildPaths());
+      const { merged } = loadLocated(rebuildPaths(), rebuildDeepGroups());
       let tree = structuredClone(merged);
 
       if (args.version) {
@@ -1463,7 +1521,7 @@ export function run(argv = process.argv.slice(2)) {
         process.exitCode = 1;
         return 1;
       }
-      const { merged } = loadLocated(rebuildPaths());
+      const { merged } = loadLocated(rebuildPaths(), rebuildDeepGroups());
       const sourceArgs = [...args._.slice(2), ...collect(args.src || args.s)];
       if (sourceArgs.length === 0) {
         console.error("error: adopt requires at least one source file/glob");
@@ -1544,7 +1602,7 @@ export function run(argv = process.argv.slice(2)) {
         process.exitCode = 1;
         return 1;
       }
-      const { merged } = loadLocated(rebuildPaths());
+      const { merged } = loadLocated(rebuildPaths(), rebuildDeepGroups());
       const ctx = createMcpContext({ tokens: merged, serveUrl: args["serve-url"] || null });
       const { stdin, stdout } = process;
       let buffer = "";
@@ -1721,6 +1779,184 @@ export function run(argv = process.argv.slice(2)) {
     }
   }
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // expand  — glob expansion, token-reference expansion, merge preview, and
+  // deep-directory grouping (the four expand features).
+  // ──────────────────────────────────────────────────────────────────────────
+  if (sub === "expand") {
+    try {
+      const cwd = args.cwd
+        ? resolve(process.cwd(), args.cwd)
+        : process.cwd();
+      const asJson = Boolean(args.json);
+
+      // Mode: --refs  (token-reference expansion)
+      if (args.refs) {
+        const tokensFile = typeof args.refs === "string" ? args.refs : null;
+        if (!tokensFile) {
+          console.error("error: expand --refs requires a token file: expand --refs <file.json>");
+          process.exitCode = 1;
+          return 1;
+        }
+        const tokenPath = resolve(process.cwd(), tokensFile);
+        const rawTokens = readTokensFile(tokenPath);
+        const merged = deepMerge({}, rawTokens);
+        const resolved = resolveReferences(merged, { reduce: options.reduce });
+        const target = args.path ? String(args.path).split(".") : null;
+
+        if (asJson) {
+          const out = target
+            ? {
+                path: args.path,
+                raw: target.reduce((n, k) => n && n[k], rawTokens),
+                resolved: target.reduce((n, k) => n && n[k], resolved),
+                refs: (() => {
+                  const rawVal = target.reduce((n, k) => n && n[k], rawTokens);
+                  if (typeof rawVal !== "string") return [];
+                  const found = [];
+                  for (const m of rawVal.matchAll(/\{([^}]+)\}/g)) {
+                    const refPath = m[1].split(".");
+                    const refVal = refPath.reduce((n, k) => n && n[k], resolved);
+                    found.push({ ref: m[1], resolved: refVal ?? null });
+                  }
+                  return found;
+                })(),
+              }
+            : resolved;
+          process.stdout.write(JSON.stringify(out, null, 2) + "\n");
+        } else {
+          // Human-readable ref-report
+          const ig = getImpactGraph(rawTokens);
+          if (target) {
+            const rawVal = target.reduce((n, k) => n && n[k], rawTokens);
+            const resVal = target.reduce((n, k) => n && n[k], resolved);
+            const refMatches = typeof rawVal === "string"
+              ? [...rawVal.matchAll(/\{([^}]+)\}/g)]
+              : [];
+            console.log(`Token: ${args.path}`);
+            console.log(`  Raw:     ${rawVal}`);
+            console.log(`  Resolved:${resVal}`);
+            if (refMatches.length) {
+              console.log(`  Refs:`);
+              for (const m of refMatches) {
+                const rp = m[1].split(".");
+                const rv = rp.reduce((n, k) => n && n[k], resolved);
+                console.log(`    {${m[1]}} → ${rv}`);
+              }
+            }
+            const dep = ig[args.path];
+            if (dep && dep.length) {
+              console.log(`  Dependents: ${dep.join(", ")}`);
+            }
+          } else {
+            // Full tree: count resolved vs unresolved
+            const flat = new Map();
+            function walk(node, prefix = []) {
+              for (const [k, v] of Object.entries(node)) {
+                if (v && typeof v === "object" && !Array.isArray(v)) {
+                  walk(v, [...prefix, k]);
+                } else {
+                  flat.set([...prefix, k].join("."), v);
+                }
+              }
+            }
+            walk(resolved);
+            let refCount = 0;
+            for (const [, v] of flat) {
+              if (typeof v === "string" && /\{[^}]+\}/.test(v)) refCount++;
+            }
+            console.log(`expand --refs: ${flat.size} token(s), ${refCount} with unresolved refs`);
+            if (refCount > 0) {
+              console.log("(use --path to inspect a specific token, or pipe through jq)");
+            }
+          }
+        }
+        return 0;
+      }
+
+      // Mode: --preview  (glob + token merge preview)
+      if (args.preview) {
+        const tokenFile = typeof args.preview === "string" ? args.preview : null;
+        const previewPaths = [
+          ...(tokenFile ? [resolve(process.cwd(), tokenFile)] : []),
+          ...imports.map((f) => resolve(process.cwd(), f)),
+          ...globs.flatMap((g) => expandGlob(g, cwd)),
+        ];
+        const { merged, sourcesContent } = loadLocated(previewPaths);
+        // Per-file token summary
+        const perFile = [];
+        let totalTokens = 0;
+        for (const [p, content] of Object.entries(sourcesContent)) {
+          try {
+            const tree = JSON.parse(content);
+            const leaves = collectLeafPaths(tree);
+            totalTokens += leaves.length;
+            perFile.push({ file: p, groups: Object.keys(tree).filter((k) => tree[k] && typeof tree[k] === "object"), leaves });
+          } catch {
+            perFile.push({ file: p, error: "parse error" });
+          }
+        }
+        if (asJson) {
+          process.stdout.write(JSON.stringify({ files: perFile, totalTokens }, null, 2) + "\n");
+        } else {
+          for (const { file, groups, leaves, error } of perFile) {
+            if (error) {
+              console.log(`${file}  (${error})`);
+            } else {
+              const leafCount = leaves.length;
+              console.log(`${file}  [${groups.join(", ")}] ${leafCount} token(s)`);
+            }
+          }
+          console.log(`\nTotal: ${perFile.length} file(s), ${totalTokens} token(s) after merge`);
+        }
+        return 0;
+      }
+
+      // Mode: glob expansion (default when positional args are glob-like patterns)
+      // Patterns come from args._ (after "expand") or from --glob flags
+      const patternArgs =
+        args._.length > 1
+          ? args._.slice(1)
+          : globs;
+
+      if (patternArgs.length === 0) {
+        console.error("error: expand requires a glob pattern or --refs/--preview flag. See --help.");
+        process.exitCode = 1;
+        return 1;
+      }
+
+      // Expand all patterns, deduplicate
+      const allGroups = [];
+      for (const pat of patternArgs) {
+        if (options.deep) {
+          allGroups.push(...groupGlobByDir(pat, cwd));
+        } else {
+          const files = expandGlob(pat, cwd);
+          allGroups.push({ dir: ".", segments: [], files });
+        }
+      }
+
+      if (asJson) {
+        const out = options.deep
+          ? { groups: allGroups }
+          : { paths: allGroups.flatMap((g) => g.files) };
+        process.stdout.write(JSON.stringify(out, null, 2) + "\n");
+      } else {
+        if (options.deep) {
+          process.stdout.write(renderDeepTree(allGroups).join("\n") + "\n");
+        } else {
+          const paths = allGroups.flatMap((g) => g.files);
+          process.stdout.write(paths.join("\n") + "\n");
+        }
+      }
+      return 0;
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+  }
+
   const outputsList = collect(args.output || args.o);
   const configOutputs = collect(config.output);
   const allOutputs = parseOutputs([...configOutputs, ...outputsList], options.format);
@@ -1734,7 +1970,7 @@ export function run(argv = process.argv.slice(2)) {
   const watch = Boolean(args.watch || args.w);
   let ok = true;
   if (!(watch && !options.initial)) {
-    ok = build(paths, options, outputs);
+    ok = build(paths, options, outputs, rebuildDeepGroups());
   }
 
   if (watch) {
