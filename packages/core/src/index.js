@@ -15,6 +15,7 @@ import { mapToBarefoot, BAREFOOT_MAP } from "./presets/barefoot.js";
 import { TAILWIND_MAP } from "./presets/tailwind.js";
 import { OPENPROPS_MAP } from "./presets/open-props.js";
 import { resolveReferences, registerFunction } from "./references.js";
+import { expandTokens } from "./expand.js";
 import { validateTokens, TokenValidationError } from "./schema.js";
 import { deepMerge } from "./merge.js";
 import { lintTokens, checkContract } from "./lint.js";
@@ -106,6 +107,7 @@ export { mapToBarefoot, BAREFOOT_MAP } from "./presets/barefoot.js";
 export { TAILWIND_MAP } from "./presets/tailwind.js";
 export { OPENPROPS_MAP } from "./presets/open-props.js";
 export { resolveReferences, registerFunction } from "./references.js";
+export { expandTokens } from "./expand.js";
 export { validateTokens, TokenValidationError } from "./schema.js";
 export { lintTokens, checkContract } from "./lint.js";
 export {
@@ -417,11 +419,15 @@ function buildOutput(tokens, options = {}) {
     validate: true,
     ...options,
   };
-  if (opts.validate) validateTokens(tokens);
+  // $expand generators materialize before validation and reference
+  // resolution, so generated tokens behave exactly like hand-written ones.
+  const expansion = expandTokens(tokens);
+  const expandedTree = expansion.tokens;
+  if (opts.validate) validateTokens(expandedTree);
 
-  const tree = normalizeW3C(tokens);
+  const tree = normalizeW3C(expandedTree);
   let registry = opts.registry || null;
-  if (registry === true) registry = buildNameRegistry(tokens);
+  if (registry === true) registry = buildNameRegistry(expandedTree);
   const flatOpts = registry ? { nameFor: (rawPath) => registry.canonicalOf(rawPath) } : {};
   const modeKey = tree.modes ? "modes" : tree.themes ? "themes" : null;
   const modeDefs = modeKey ? tree[modeKey] : null;
@@ -502,13 +508,13 @@ function buildOutput(tokens, options = {}) {
   } else if (opts.format === "report") {
     css = renderReport(resolvedBase, modeDefs, opts);
   } else if (opts.format === "docs") {
-    css = buildDocsSite(tokens, opts);
+    css = buildDocsSite(expandedTree, opts);
   } else if (opts.format === "provenance") {
-    css = buildProvenance(tokens, opts);
+    css = buildProvenance(expandedTree, opts);
   } else if (opts.format === "ts") {
-    css = buildBindings(tokens, opts).ts;
+    css = buildBindings(expandedTree, opts).ts;
   } else if (opts.format === "js") {
-    css = buildBindings(tokens, opts).js;
+    css = buildBindings(expandedTree, opts).js;
   } else if (opts.format && registeredFormats[opts.format]) {
     css = registeredFormats[opts.format](baseOut, {
       ...opts,
@@ -527,7 +533,7 @@ function buildOutput(tokens, options = {}) {
       .join("");
   }
 
-  return { css, customMap };
+  return { css, customMap, expanded: expansion.generated };
 }
 
 export function convert(tokens, options = {}) {

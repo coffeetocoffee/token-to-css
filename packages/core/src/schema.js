@@ -19,6 +19,7 @@ export const TOKEN_SCHEMA = {
           properties: {
             $value: {},
             $type: { type: "string" },
+            $expand: { type: "object" },
             $description: { type: "string" },
             $version: { type: "string" },
             deprecated: { type: "boolean" },
@@ -44,7 +45,7 @@ function assertTree(node, path, errors) {
   }
   if (node !== null && typeof node === "object") {
     for (const [key, value] of Object.entries(node)) {
-      if (key === "$value" || key === "$type" || key === "$description" || key === "$version" || key === "deprecated" || key === "replacedBy") continue;
+      if (key === "$value" || key === "$type" || key === "$expand" || key === "$description" || key === "$version" || key === "deprecated" || key === "replacedBy") continue;
       assertTree(value, [...path, key], errors);
     }
     return;

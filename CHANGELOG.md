@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Token expansion generators (`$expand`)
+
+Generate families of tokens at compile time from declarative patterns — zero deps, full round-trip support.
+
+- **`$expand` meta-key**: annotate any token node with one of four generator specs; expanded output merges cleanly with existing structure and participates in refs/themes/modes like hand-written tokens.
+- **ramp generator**: perceptual color scales using OKLCH; maps lightness linearly across steps, optional chroma scaling against a base token, named step keys (e.g., `100`, `200`, `500`).
+- **scale generator**: geometric progressions for spacing/type scale; configurable base, ratio, steps array + unit (px/rem/em), produces flat numeric values or calc().
+- **fluid generator**: viewport interpolation with clamp(); sets min/max values and viewport bounds (vwMin/vwMax) producing CSS `clamp(min, (max-min)*(100vw - vwMin)/(vwMax - vwMin) + min)` formulas.
+- **cross generator**: cartesian products with placeholder substitution; define dimensions as arrays and templates with `{dimName}` placeholders; templates resolve to refs that downstream reference resolution honors.
+- **Provenance tracking**: each generated token records path/name/kind/value/semver; returned as `{ generated: [...] }` from `convert()` and via CLI `--generators --as-json`.
+- **CLI `--generators` flag**: expand-only mode outputs JSON with both expanded tree and provenance array; full build pipeline runs expansion before validation/refs/themes automatically.
+- **Schema & lint support**: `$expand` allowed alongside `$value`/$type; validation skips expanded checks on nodes that contain `$expand`; error messages specify which generator failed and why.
+- 14 new tests (`test/expand-generators.test.js`); full suite **363 tests** (349 → 363).
+
 ## [15.0.0] - 2026-09-18
 
 ### Added — AI-native token ops (v15)

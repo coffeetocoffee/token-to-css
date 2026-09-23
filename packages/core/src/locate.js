@@ -108,6 +108,32 @@ export function parseLocated(text, filename) {
       }
       return obj;
     }
+    if (c === "[") {
+      // Arrays are only meaningful inside metadata keys like $expand;
+      // their elements contribute no location entries.
+      i++;
+      const arr = [];
+      ws();
+      if (text[i] === "]") {
+        i++;
+        return arr;
+      }
+      while (true) {
+        const val = parseValue([...path, String(arr.length)]);
+        arr.push(val);
+        ws();
+        if (text[i] === ",") {
+          i++;
+          continue;
+        }
+        if (text[i] === "]") {
+          i++;
+          break;
+        }
+        err("expected , or ]");
+      }
+      return arr;
+    }
     if (c === '"') return parseString().value;
     if (c === "-" || (c >= "0" && c <= "9")) return parseNumber();
     if (text.startsWith("true", i)) {

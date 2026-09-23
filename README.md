@@ -90,11 +90,127 @@ Full reference lives in the CLI itself — `token-to-css <command> --help` is al
 
 <br>
 
-## Use it in code
+## $expand: generate tokens at compile time
+
+Declare patterns once, emit families automatically:
+
+- **ramp** — perceptual color scales (OKLCH lightness steps)
+- **scale** — geometric progressions (spacing, type scale)
+- **fluid** — viewport interpolation (clamp() between min/max)
+- **cross** — cartesian products with placeholders (component variants)
+
+### Color ramps
+
+```json
+{
+  "color": {
+    "brand": {
+      "$value": "#3b82f6",
+      "$expand": {
+        "ramp": {
+          "base": "#3b82f6",
+          "light": [20, 80],
+          "steps": [100, 200, 300, 400, 500, 600, 700],
+          "chroma": 1.2
+        }
+      }
+    }
+  }
+}
+```
+
+Generates `color.brand.100` through `color.brand.700` using OKLCH for perceptual uniformity.
+
+### Scales & spacing
+
+```json
+{
+  "spacing": {
+    "$expand": {
+      "scale": {
+        "base": 4,
+        "ratio": 1.5,
+        "steps": ["xs", "sm", "md", "lg", "xl", "xxl"],
+        "unit": "px"
+      }
+    }
+  }
+}
+```
+
+Creates `spacing.xs`, `spacing.sm`, ... as `4px`, `6px`, `9px`, etc.
+
+### Fluid typography
+
+```json
+{
+  "font": {
+    "size": {
+      "$expand": {
+        "fluid": {
+          "property": "fontSize",
+          "min": 14,
+          "max": 24,
+          "vwMin": 320,
+          "vwMax": 1200
+        }
+      },
+      "display": {
+        "$expand": {
+          "fluid": {
+            "property": "fontSize",
+            "min": 32,
+            "max": 64,
+            "vwMin": 480,
+            "vwMax": 1600
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Outputs CSS `font-size: clamp(14px, 2vw + 10px, 24px)` style formulas.
+
+### Component cross-products
+
+```json
+{
+  "button": {
+    "$expand": {
+      "cross": {
+        "variant": ["primary", "secondary", "ghost"],
+        "size": ["sm", "md", "lg"]
+      },
+      "template": {
+        "bg": "{color.{variant}}",
+        "pad": "{spacing.{size}}",
+        "radius": "{radius-md}"
+      }
+    }
+  }
+}
+```
+
+Produces `button.primary-sm`, `button.secondary-md`, `button.ghost-lg`, each with template vars that resolve downstream.
+
+### CLI usage
+
+```bash
+# Expand only, output JSON with generated token provenance
+token-to-css tokens.json --generators --as-json
+
+# Full build with expansion before refs/themes
+token-to-css tokens.json -o css:theme.css
+```
+
+### API
 
 ```js
-import { convert } from "token-to-css";
-const css = convert(tokens, { format: "css", modes: ["dark"] });
+import { expandTokens } from "token-to-css";
+const { tokens, generated } = expandTokens(input);
+// generated: [{ path, name, kind, provenance, semver }]
 ```
 
 <br>

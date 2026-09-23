@@ -1,5 +1,48 @@
 export type Tokens = any;
 
+export interface ExpandGenerator {
+  ramp?: {
+    base?: string;
+    light?: [number, number];
+    dark?: [number, number];
+    steps: number[] | string[];
+    chroma?: number;
+  };
+  scale?: {
+    base: number;
+    ratio?: number;
+    steps: (string | number)[];
+    unit?: string;
+  };
+  fluid?: {
+    property: string;
+    min: number;
+    max: number;
+    vwMin: number;
+    vwMax: number;
+  };
+  cross: {
+    [dimension: string]: (string | number)[];
+  };
+  template?: Record<string, string>;
+}
+
+export interface GeneratedToken {
+  path: string;
+  name: string;
+  kind: "ramp" | "scale" | "fluid" | "cross";
+  value: string;
+  provenance: string;
+  semver: "patch" | "minor" | "major";
+}
+
+export interface ExpandResult {
+  tokens: Tokens;
+  generated: GeneratedToken[];
+}
+
+export function expandTokens(input: Tokens): ExpandResult;
+
 export function convert(tokens: Tokens, options?: any): string;
 export function convertToMap(tree: Tokens, locations: any, options?: any): { css: string; map: any };
 export function flattenTokens(input: any, prefix?: any[], opts?: any): Record<string, string>;

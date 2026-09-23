@@ -6,6 +6,7 @@ import {
   convert,
   convertToMap,
   diffTokens,
+  expandTokens,
   lintTokens,
   checkContract,
   buildKit,
@@ -137,6 +138,7 @@ Usage:
   token-to-css expand <pattern...> [--cwd dir] [--json] [--deep]
   token-to-css expand --refs <file.json> [--path token.path] [--json]
   token-to-css expand --preview <file.json> [--import <f>] [--glob <g>] [--json]
+  token-to-css expand --generators <file.json> [--json]
 
 Options:
   -o, --output <[fmt:]file>  Write output (repeatable); prefix format, e.g. scss:out.scss
@@ -203,6 +205,7 @@ Options:
    --deep              With glob: namespace each matched directory as a top-level key (e.g. tokens/brand-a/*.json → merged.brand_a.*) instead of flattening all files into one tree
    --refs <file>       With expand: token-reference expansion mode
    --preview <file>    With expand: show per-file token keys and merge summary
+   --generators <file> With expand: preview $expand materialization (ramp/scale/fluid/cross) without building
    --path <token.path> With expand --refs: resolve only this specific token and show its ref trace
    --cwd <dir>         With expand: base directory for glob patterns (default: process.cwd())
    -n, --no-validate   Skip token validation
@@ -226,7 +229,7 @@ Subcommands:
   release <a> <b>     Classify a token diff into a semver bump + changelog
   lock <lock> <a> <b> Check a consumer lockfile against a release for breaking changes
   bisect <token>      Walk checkpoints to find the change that flipped a token value
-  expand              Expand glob patterns to file paths; --refs expands token references; --preview shows per-file token keys and merge summary
+  expand              Expand glob patterns to file paths; --refs expands token references; --preview shows per-file token keys and merge summary; --generators previews $expand materialization. $expand blocks (ramp/scale/fluid/cross) also materialize automatically in every build.
 
 `);
 }
@@ -1789,6 +1792,29 @@ export function run(argv = process.argv.slice(2)) {
         ? resolve(process.cwd(), args.cwd)
         : process.cwd();
       const asJson = Boolean(args.json);
+
+      // Mode: --generators  (preview $expand materialization)
+      if (args.generators) {
+        const genFile = typeof args.generators === "string" ? args.generators : null;
+        if (!genFile) {
+          console.error("error: expand --generators requires a token file: expand --generators <file.json>");
+          process.exitCode = 1;
+          return 1;
+        }
+        const raw = readTokensFile(resolve(process.cwd(), genFile));
+        const { tokens: expanded, generated } = expandTokens(raw);
+        if (asJson) {
+          process.stdout.write(JSON.stringify({ generated, expanded }, null, 2) + "\n");
+        } else {
+          const expandedCount = collectLeafPaths(expanded).length;
+          console.log(`expand --generators: ${generated.length} token(s) generated from $expand blocks`);
+          for (const g of generated) {
+            console.log(`  [${g.kind}] ${g.path}`);
+          }
+          console.log(`Expanded tree: ${expandedCount} token(s) total`);
+        }
+        return 0;
+      }
 
       // Mode: --refs  (token-reference expansion)
       if (args.refs) {
