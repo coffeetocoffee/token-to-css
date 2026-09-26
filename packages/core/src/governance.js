@@ -1,6 +1,14 @@
 let nextCrId = 1;
 
 /**
+ * Keys that can reach the prototype chain. `cr.proposed` is attacker-supplied
+ * and is deep-merged into the source tree by `applyChangeRequest`, so it needs
+ * the same guard as `merge.js` — an unguarded assign through `__proto__` would
+ * pollute `Object.prototype` process-wide.
+ */
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+/**
  * Stamp a `$version` field on every leaf token in a tree.
  * Leaves that already have `$version` are left untouched.
  */
@@ -95,15 +103,26 @@ export function applyChangeRequest(source, cr) {
   return { tree: out, cr };
 }
 
+function safeCopy(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  const out = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (UNSAFE_KEYS.has(k)) continue;
+    out[k] = safeCopy(v);
+  }
+  return out;
+}
+
 function deepMerge(target, source) {
   for (const [key, value] of Object.entries(source)) {
+    if (UNSAFE_KEYS.has(key)) continue;
     if (value && typeof value === "object" && !Array.isArray(value)) {
       if (!target[key] || typeof target[key] !== "object" || Array.isArray(target[key])) {
         target[key] = {};
       }
       deepMerge(target[key], value);
     } else {
-      target[key] = value;
+      target[key] = safeCopy(value);
     }
   }
 }

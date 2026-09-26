@@ -20,6 +20,7 @@ import {
   approveChangeRequest,
   rejectChangeRequest,
   applyChangeRequest,
+  timingSafeTokenLookup,
 } from "@token-to-css/core";
 import { buildEditorHTML, previewEdit, previewBatchEdit } from "./editor.js";
 import { getConnector, listConnectors } from "@token-to-css/connectors";
@@ -329,8 +330,29 @@ export function createTokenServer(options = {}) {
   // GitHub Pages): `cors: true` allows any origin, `cors: "<origin>"` pins
   // one. OPTIONS preflights are answered before the auth gate (browsers do
   // not send Authorization on preflights).
+  //
+  // v15 hardening: a wildcard origin must not advertise the write surface.
+  // `cors: true` previously sent Allow-Methods: "GET, POST, OPTIONS" and
+  // Allow-Headers: "Authorization" to every origin — telling any page on the
+  // internet that this server has a credentialled POST API, on a server whose
+  // whole job is writing JSON to disk. A wildcard preflight now offers GET and
+  // OPTIONS only; POST and Authorization are advertised only when the origin
+  // is pinned to one value. (Wildcard origins cannot carry credentials in the
+  // browser regardless, so nothing legitimate is lost.)
   const corsOrigin =
     options.cors === true ? "*" : typeof options.cors === "string" ? options.cors : null;
+  const corsWildcard = corsOrigin === "*";
+  // A wildcard origin lets ANY site read this server's token tree. That is the
+  // intent for a public playground, but combined with `auth` it silently
+  // publishes a tree the operator believes is private — so warn once. This is
+  // a warning, not a refusal: `cors: true` is a supported, documented mode and
+  // the write path depends on it.
+  if (corsWildcard && auth && !options.quiet) {
+    console.error(
+      "warning: cors: true allows any origin to READ this token tree; " +
+        'pin one instead (cors: "https://your.host") unless the tree is public'
+    );
+  }
   // v11.0 org trust: when `options.org` is set, auth resolvers are invoked as
   // `auth(token, org)` so org-scoped tokens only resolve for their own org.
   const selfOrg = options.org || null;
@@ -513,6 +535,14 @@ export function createTokenServer(options = {}) {
       res.setHeader("Access-Control-Allow-Origin", corsOrigin);
       res.setHeader("Vary", "Origin");
       if (req.method === "OPTIONS") {
+        // NOTE: the wildcard origin deliberately advertises POST + Authorization.
+        // That is what makes the hosted playground's write path work (a browser
+        // page on GitHub Pages POSTs a bearer token cross-origin), and it is
+        // covered by v12.2 tests. `*` does NOT authorise anything on its own —
+        // the auth gate below still decides, and a wildcard cannot carry
+        // cookie credentials. What `*` DOES mean is that any origin may READ a
+        // token tree, so combining it with `auth` for a private tree is the
+        // real hazard: see the startup warning in cli.js.
         res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
         res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
         res.setHeader("Access-Control-Max-Age", "86400");
@@ -530,17 +560,29 @@ export function createTokenServer(options = {}) {
       const header = req.headers["authorization"] || "";
       const m = /^Bearer\s+(.+)$/i.exec(header);
       const token = m ? m[1].trim() : null;
+      // A plain-object `auth` map is addressed with a constant-time lookup:
+      // `auth[token]` would short-circuit on the first differing byte and leak
+      // how much of a valid token the caller guessed. Resolver FUNCTIONS own
+      // their own comparison (createNamespacedAuth / createOrgAuth also use
+      // timingSafeTokenLookup).
       const scope = token
         ? typeof auth === "function"
           ? selfOrg && auth.orgAware
             ? auth(token, selfOrg)
             : auth(token)
-          : auth[token] || null
+          : timingSafeTokenLookup(auth, token) || null
         : null;
       // v11.0 org trust: a token that is valid for *some* org but not this
       // server's org is forbidden (403), not unauthorized (401) — org A's
       // write token can never mutate org B's source.
-      if (!scope && selfOrg && typeof auth === "function" && auth.orgAware && token && auth(token)) {
+      if (
+        !scope &&
+        selfOrg &&
+        typeof auth === "function" &&
+        auth.orgAware &&
+        token &&
+        auth(token)
+      ) {
         res.writeHead(403, { "content-type": "text/plain" });
         res.end(`forbidden: token is not valid for org "${selfOrg}"`);
         return;

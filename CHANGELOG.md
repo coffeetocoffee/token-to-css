@@ -5,7 +5,128 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [17.0.0] - 2026-09-25
+
+Eleven findings from a full static audit are fixed, and four zero-dependency
+gates now guard the classes of defect that audit surfaced. **All 447 tests pass**
+(363 → 447). Each gate is verified to *fail* on the thing it guards — a gate
+that cannot fire is worse than none, which this release also documents having
+shipped once and caught.
+
+> **Version note:** this supersedes the `v16.0.0` git tag, which was pushed
+> pointing at the `$expand` commit but whose `package.json` still declared
+> `15.0.0` and was never published to npm. The `v16.0.0` tag is left untouched;
+> this release carries both the `$expand` work below and the audit fixes. npm
+> `latest` moves from `15.0.0` straight to `17.0.0`.
+
+### Fixed — security
+
+- **Prototype pollution via change-request payloads** (`packages/core/src/governance.js`).
+  `applyChangeRequest` deep-merged a CR's attacker-supplied `proposed` tree with
+  an unguarded `target[key] = {}` followed by recursion. Assigning a fresh `{}`
+  to `__proto__` does not create a property — it *replaces the target's
+  prototype* — so the recursive descent then wrote the attacker's leaves
+  straight onto `Object.prototype` (verified: `{}.polluted === 9`). Reachable
+  from an approved change-request, i.e. the agent-facing write path. The
+  `deepMerge` in `merge.js` is guarded too, and both now copy whole-object
+  values through a key-sanitising clone so an own `__proto__` key cannot ride
+  into the output tree and flatten into a bogus token.
+- **Non-constant-time auth comparison** (`src/serve.js`, `packages/core/src/namespaces.js`).
+  Bearer tokens were looked up with a plain object index, which short-circuits
+  on the first differing byte. New exported `timingSafeTokenLookup()` compares
+  against every key with a length-normalised, branch-free accumulator (no early
+  exit), and is now used by `serve`, `createNamespacedAuth` and `createOrgAuth`.
+  As a side effect it also rejects `__proto__`/`constructor`/`prototype` as
+  candidate tokens. `crypto.timingSafeEqual` was deliberately not used: it needs
+  equal-length Buffers and would reintroduce a length oracle.
+
+### Fixed
+
+- **`rgb()`/`hsl()` accepted wrong arity silently** — `rgb(1,2)` produced an
+  invalid colour instead of raising. Both now require exactly 3 arguments.
+- **`asNumber` depended on a unit it did not return** — every caller re-read
+  `.unit` off the original token, a refactor trap. Replaced by `asRatio()`,
+  which normalises `%` in one place.
+- **`$expand` emitted invalid CSS for a descending `fluid` range** — bounds were
+  not ordered, so `max < min` produced `clamp(2rem, ..., 1rem)`, which is
+  invalid and collapses to a constant, silently stopping the token from
+  responding to the viewport. Bounds are now ordered; **ascending output is
+  byte-identical** to before.
+- **`$expand` errors were a plain `Error`, not `TokenValidationError`** —
+  because expansion runs *before* validation, a malformed `$expand` was
+  indistinguishable from a compiler bug. All 13 throw sites now raise
+  `TokenValidationError`, so `instanceof` is a single reliable check.
+
+### Changed
+
+- **`ramp` with a numeric `steps` count now emits palette-style names.** A count
+  used to produce `color.brand.0` … `color.brand.4`; it now produces `50`,
+  `200`, `400`, `600`, `900`. This is user-visible: a spec using a numeric ramp
+  count produces different names than before. Explicit name arrays are
+  unaffected, and no such usage exists in the tree. (`scale`/`fluid` keep index
+  names, where a bare count carries no scale meaning.)
+- **`cross` products are capped at 4096 combinations per group.** Over the cap
+  throws with the count and shape, e.g. `8000 combinations (a[20] x b[20] x
+  c[20]) exceeds the limit of 4096; split it into smaller $expand groups` —
+  instead of silently allocating until the build dies.
+- **`cors: true` combined with `auth` now warns at startup** that any origin may
+  read the token tree. The CORS headers themselves are unchanged and must stay
+  wide: they are the mechanism that makes the hosted playground's cross-origin
+  write path legal. (An earlier attempt at this fix narrowed them and broke a
+  passing test — recorded in the audit report.)
+
+### Added — verification gates (zero dependencies)
+
+Each gate is proven to fire on its own failure class, not merely to pass:
+
+- **`scripts/check-syntax.js`** (`npm run check:syntax`) — catches a file that
+  does not parse, binary/control bytes in source (reporting the **first byte
+  offset** plus `git checkout -- <file>`), and invalid UTF-8. This is the gate
+  that would have caught the `src/playground.js` corruption — which took down
+  all 363 tests at once — at commit time. Implementer note: `node --check
+  <file>.js` is **not** a reliable gate, because Node infers module-vs-script
+  from the nearest `package.json` and, without `"type": "module"`, parses as
+  CommonJS and reports `export` syntax errors as exit 0. The script pipes
+  through `--input-type=module --check` on stdin instead.
+- **`scripts/install-hooks.js`** (`npm run hooks:install`) — opt-in pre-commit
+  hook running the syntax gate on staged files. Local-only, refuses to clobber a
+  foreign hook, no husky.
+- **`scripts/check-declarations.js`** (`npm run check:declarations`) — compares
+  each shipped `.d.ts` against its module both ways: every runtime export must
+  be declared, every declared value must exist. It found real drift on first
+  run: `deepMerge`, `mergeTokens` and `timingSafeTokenLookup` were live exports
+  with no declaration; all three are now declared with real signatures.
+- **`scripts/check-coverage.js`** (`npm run check:coverage`) — parses lcov from
+  Node's built-in coverage and enforces a global floor plus per-file floors on
+  the five highest-risk modules, reporting a critical module that no test even
+  imports rather than skipping it. Measured: lines 83.5%, branches 78.2%,
+  functions 84.7%.
+- **`npm run verify`** runs syntax → declarations → tests → coverage, wired to
+  `prepublishOnly` and to CI (a new `gates` job that additionally checks every
+  **committed blob**, so a clean working tree cannot hide a bad commit).
+- **`test/registry-property.test.js`** — the registry's "provably lossless"
+  round-trip claim is now property-tested over 300 seeded random trees with a
+  deliberately collision-prone segment pool, asserting
+  `pathOf(canonicalOf(P)) === P` for every leaf. Non-vacuity verified against a
+  known-lossy registry.
+- **84 new tests** across `test/weakness-fixes.test.js` (18),
+  `test/expand-hardening.test.js` (14), `test/hardening-7-9.test.js` (30),
+  `test/registry-property.test.js` (5), `test/gates.test.js` (17).
+
+### Documentation
+
+- `.d.ts` drift is now **documented, not silently tolerated**: `ramp`'s
+  `light`/`dark` fields are not read by the implementation (it reads
+  `lightness`; passing `light` is silently ignored), and `fluid` `min`/`max`
+  must be unit strings, not the bare numbers the README and types implied. Both
+  carry NOTE comments on the exact fields. They were deliberately **not**
+  reconciled in the runtime — renaming a field or accepting a bare number
+  changes the public API and is a maintainer decision, not something to slip
+  into a hardening pass.
+- `README.md` documents the four gates and `npm run verify`.
+- No linter was added: none exists in this project, every candidate is a
+  dependency, and lint rules are style rather than a correctness gate. Flagged
+  as a decision, not an oversight.
 
 ### Added — Token expansion generators (`$expand`)
 
@@ -19,7 +140,8 @@ Generate families of tokens at compile time from declarative patterns — zero d
 - **Provenance tracking**: each generated token records path/name/kind/value/semver; returned as `{ generated: [...] }` from `convert()` and via CLI `--generators --as-json`.
 - **CLI `--generators` flag**: expand-only mode outputs JSON with both expanded tree and provenance array; full build pipeline runs expansion before validation/refs/themes automatically.
 - **Schema & lint support**: `$expand` allowed alongside `$value`/$type; validation skips expanded checks on nodes that contain `$expand`; error messages specify which generator failed and why.
-- 14 new tests (`test/expand-generators.test.js`); full suite **363 tests** (349 → 363).
+- 14 new tests (`test/expand-generators.test.js`); suite went 349 → 363 at the
+  time this work landed, and is **447** as of 17.0.0 (see above).
 
 ## [15.0.0] - 2026-09-18
 
@@ -858,7 +980,8 @@ connectors graduate it.)
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v15.0.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v17.0.0...HEAD
+[17.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v15.0.0...v17.0.0
 [15.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v14.0.0...v15.0.0
 [14.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v12.3.0...v14.0.0
 [12.3.0]: https://github.com/coffeetocoffee/token-to-css/compare/v12.2.0...v12.3.0

@@ -3,25 +3,46 @@ export type Tokens = any;
 export interface ExpandGenerator {
   ramp?: {
     base?: string;
+    /**
+     * `steps` may be an explicit list of names, or a count. A count derives
+     * conventional palette stop names (50, 100, 200, ... 900); a count larger
+     * than the built-in table is spread evenly across 50..950.
+     */
+    steps: (string | number)[] | number;
+    /**
+     * NOTE: `light`/`dark` are NOT read by the implementation — it reads
+     * `lightness`. Passed as `light`, the bounds are silently ignored and the
+     * default [0.95, 0.25] is used. See the open drift item in the weakness
+     * report before relying on this type.
+     */
     light?: [number, number];
     dark?: [number, number];
-    steps: number[] | string[];
+    /** [lightest, darkest] OKLCH lightness bounds. Default [0.95, 0.25]. */
+    lightness?: [number, number];
     chroma?: number;
   };
   scale?: {
     base: number;
     ratio?: number;
-    steps: (string | number)[];
+    steps: (string | number)[] | number;
     unit?: string;
   };
   fluid?: {
     property: string;
-    min: number;
-    max: number;
-    vwMin: number;
-    vwMax: number;
+    /**
+     * NOTE: `min`/`max` must be length STRINGS with a unit ("1rem", "16px"),
+     * not bare numbers — a number throws. The `number` type below reflects the
+     * shipped .d.ts, which is wrong; corrected here to match the code.
+     */
+    min: number | string;
+    max: number | string;
+    /** Required in practice: the implementation throws without it. */
+    steps?: (string | number)[] | number;
+    vwMin?: number;
+    vwMax?: number;
   };
   cross: {
+    /** Cartesian product; the product of all lengths is capped at 4096. */
     [dimension: string]: (string | number)[];
   };
   template?: Record<string, string>;
@@ -114,6 +135,17 @@ export function createFlatNamespacedAuth(...args: any[]): any;
 export function createNamespacedMiddleware(...args: any[]): any;
 export function createOrgAuth(...args: any[]): any;
 export function orgRoomKey(...args: any[]): any;
+/**
+ * Constant-time lookup of a candidate token in a `{ token: entry }` map.
+ * Compares against every key with a length-normalised, branch-free accumulator
+ * (no byte-position short-circuit, no early exit). Returns the matching entry,
+ * or null for a non-string/empty/absent candidate. Also rejects `__proto__`,
+ * `constructor` and `prototype` as candidate tokens.
+ */
+export function timingSafeTokenLookup<T = any>(
+  tokenMap: Record<string, T>,
+  candidate: unknown
+): T | null;
 export function bumpVersion(...args: any[]): any;
 export function classifyRelease(...args: any[]): any;
 export function generateChangelog(...args: any[]): any;
@@ -124,6 +156,23 @@ export function bisectToken(...args: any[]): any;
 export function renderSideBySide(...args: any[]): any;
 export function diffTokens(a: any, b: any): any;
 export function buildSourceMap(css: string, locations: any, options?: any): any;
+
+/**
+ * Recursively merge `source` into `target` (mutating and returning `target`).
+ * Nested objects are merged; anything else replaces. Keys `__proto__`,
+ * `constructor` and `prototype` are SKIPPED, and whole-object values are copied
+ * through a key-sanitising clone, so an attacker-controlled tree cannot pollute
+ * `Object.prototype` or smuggle an own `__proto__` key into the output.
+ */
+export function deepMerge<T extends Record<string, any>>(
+  target: T,
+  source: Record<string, any>
+): T;
+/** Deep-merge `imports` in order, with `main` last so it wins. Returns a new object. */
+export function mergeTokens(
+  main: Record<string, any>,
+  imports: Record<string, any>[]
+): Record<string, any>;
 
 export function parseColor(str: string): any;
 export function formatColor(c: any): string;

@@ -6,6 +6,37 @@ on:
   pull_request:
 
 jobs:
+  # Fast gates first, in their own job so a syntax failure is not buried in a
+  # test failure. This is the check that would have named the corrupted byte
+  # range immediately instead of surfacing as 363 test errors.
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax gate (working tree)
+        run: node scripts/check-syntax.js
+      - name: Syntax gate (COMMITTED blobs)
+        # A clean working tree is not proof: check exactly what the commit
+        # contains, file by file, so a bad blob cannot hide behind checkout
+        # normalisation.
+        run: |
+          fail=0
+          for f in $(git ls-files '*.js' '*.mjs' '*.cjs' | grep -v node_modules); do
+            if ! git show "HEAD:$f" | node --input-type=module --check 2>/dev/null; then
+              echo "::error file=$f::committed blob does not parse"
+              fail=1
+            fi
+          done
+          exit $fail
+      - name: Declaration drift
+        run: |
+          npm install
+          node scripts/check-declarations.js
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -20,6 +51,11 @@ jobs:
       - name: Install (link workspaces)
         run: npm install
       - run: npm test
+      - name: Coverage gate
+        # Node 20 supports --experimental-test-coverage; only run once, not per
+        # matrix entry, to keep CI fast.
+        if: matrix.node-version == 22
+        run: node scripts/check-coverage.js
       - name: E2E smoke
         run: |
           node src/cli.js examples/tokens.json -o /tmp/out.css

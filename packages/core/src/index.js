@@ -75,6 +75,7 @@ import {
   createNamespacedMiddleware,
   createOrgAuth,
   orgRoomKey,
+  timingSafeTokenLookup,
 } from "./namespaces.js";
 import {
   bumpVersion,
@@ -169,6 +170,7 @@ export {
   createNamespacedMiddleware,
   createOrgAuth,
   orgRoomKey,
+  timingSafeTokenLookup,
 } from "./namespaces.js";
 export {
   bumpVersion,

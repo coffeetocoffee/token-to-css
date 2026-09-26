@@ -9,7 +9,7 @@ Zero deps · Node 20+ · CSS, themes, docs & a live mesh — from one JSON file.
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![GitHub Release](https://img.shields.io/github/v/release/coffeetocoffee/token-to-css)](https://github.com/coffeetocoffee/token-to-css/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v15.0.0](https://img.shields.io/badge/phase-15.0.0%20%E2%80%94%20AI%20native%20token%20ops-7c3aed)](https://github.com/coffeetocoffee/token-to-css)
+[![v17.0.0](https://img.shields.io/badge/phase-17.0.0%20%E2%80%94%20audit%20hardening%20%2B%20verification%20gates-7c3aed)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 </div>
@@ -216,8 +216,23 @@ const { tokens, generated } = expandTokens(input);
 <br>
 
 ```bash
-npm test  # node --test
+npm test              # node --test, no dependencies
+npm run verify        # full gate: syntax + declarations + tests + coverage
+npm run hooks:install # opt-in pre-commit syntax gate (per clone, local only)
 ```
+
+`npm run verify` runs four gates. Each has been shown to fail on the thing it
+guards, rather than merely passing:
+
+| Gate | Catches |
+| --- | --- |
+| `check:syntax` | a file that does not parse, or binary/control bytes in source — reports the byte offset |
+| `check:declarations` | a runtime export missing from the hand-written `.d.ts`, or a declared symbol that does not exist |
+| `test` | behaviour regressions |
+| `check:coverage` | coverage sliding below a per-file floor on the critical modules |
+
+All four are zero-dependency, like the rest of the project. The same pipeline
+runs on `prepublishOnly` and in CI.
 
 <div align="center">
 

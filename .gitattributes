@@ -1,0 +1,25 @@
+# Normalise line endings in the repository, not per-machine.
+#
+# Without this the project relied on each contributor's core.autocrlf setting,
+# which produced differences like `src/color.js` comparing unequal to the
+# published tarball purely from CRLF vs LF. Storage is now always LF; Git
+# converts to CRLF on checkout for Windows editors that want it.
+* text=auto eol=lf
+
+# Binary assets must never be line-ending-mangled.
+*.tgz binary
+*.png binary
+*.jpg binary
+*.ico binary
+
+# Generated / vendored trees.
+node_modules/ -text -diff
+
+# Keep lockfiles byte-stable so CI installs are reproducible.
+package-lock.json text eol=lf
+
+# Shell hooks need LF to execute on Unix.
+*.sh text eol=lf
+
+# CI workflow files are parsed by GitHub on Linux.
+.github/workflows/*.yml text eol=lf

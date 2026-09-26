@@ -22,35 +22,36 @@ const UNIT_RE = /^(px|rem|em|%|vh|vw|vmin|vmax|fr|pt|ch|ex|s|ms|deg|rad|turn)$/;
 const BUILTIN_FUNCTIONS = {
   alpha(args) {
     const c = asColor(args[0]);
-    const p = asNumber(args[1]) / (args[1].unit === "%" ? 100 : 1);
+    const p = asRatio(args[1]);
     return formatColor(withAlpha(c, p));
   },
   lighten(args) {
     const c = asColor(args[0]);
-    const p = asNumber(args[1]) / (args[1].unit === "%" ? 100 : 1);
+    const p = asRatio(args[1]);
     return formatColor(lighten(c, p));
   },
   darken(args) {
     const c = asColor(args[0]);
-    const p = asNumber(args[1]) / (args[1].unit === "%" ? 100 : 1);
+    const p = asRatio(args[1]);
     return formatColor(darken(c, p));
   },
   mix(args) {
     const c1 = asColor(args[0]);
     const c2 = asColor(args[1]);
-    const p =
-      args[2] != null
-        ? asNumber(args[2]) / (args[2].unit === "%" ? 100 : 1)
-        : 0.5;
+    const p = args[2] != null ? asRatio(args[2]) : 0.5;
     return formatColor(mix(c1, c2, p));
   },
   rgb(args) {
+    if (args.length !== 3)
+      throw new Error(`rgb() expects 3 arguments, got ${args.length}`);
     const nums = args.map((a) => (a.kind === "num" ? a.value : null));
     if (nums.some((n) => n == null))
       throw new Error("rgb() expects numeric arguments");
     return formatColor({ r: nums[0], g: nums[1], b: nums[2], a: 1 });
   },
   hsl(args) {
+    if (args.length !== 3)
+      throw new Error(`hsl() expects 3 arguments, got ${args.length}`);
     const nums = args.map((a) => (a.kind === "num" ? a.value : null));
     if (nums.some((n) => n == null))
       throw new Error("hsl() expects numeric arguments");
@@ -103,9 +104,15 @@ function asColor(v) {
   return c;
 }
 
-function asNumber(v) {
+/**
+ * A numeric argument interpreted as a ratio: `50%` -> 0.5, `0.5` -> 0.5.
+ * The unit travels with the value here instead of being read back off the
+ * original token by every caller, so a `%`-normalization change in one place
+ * cannot silently desynchronize from the call sites.
+ */
+function asRatio(v) {
   if (v.kind !== "num") throw new Error("expected a number");
-  return v.value;
+  return v.unit === "%" ? v.value / 100 : v.value;
 }
 
 function hslToRgb(h, s, l) {

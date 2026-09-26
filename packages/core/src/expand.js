@@ -32,19 +32,65 @@
  * provenance entry per materialized token for inspectability.
  */
 import { parseColor, formatColor, rgbToOklch, oklchToRgb } from "./color.js";
+import { TokenValidationError } from "./schema.js";
+
+/**
+ * A malformed `$expand` block is a USER config error, not an internal fault, so
+ * it throws the same `TokenValidationError` that `validateTokens` uses. This
+ * matters because `expandTokens` runs BEFORE validation: previously a bad
+ * `$expand` surfaced as a plain `Error`, leaving callers unable to tell an
+ * authoring mistake from a compiler bug. `instanceof TokenValidationError` is
+ * now the single check for "the user's tokens are wrong".
+ */
+function expandError(message) {
+  return new TokenValidationError(message);
+}
 
 function fmt(n) {
   const r = Math.round(n * 10000) / 10000;
   return String(r);
 }
 
-function stepNames(steps, at) {
+/**
+ * Derive the emitted token names for a `steps` spec.
+ *
+ * `steps` is either an explicit array of names, or a count. A count used to
+ * emit "0".."n-1" for every generator, which is why `ramp` with `steps: 5`
+ * produced `color.brand.0` … `color.brand.4` — names that carry no design
+ * meaning and read as a bug in the output. The count form now derives names
+ * appropriate to the generator (`style`), so it stays backward compatible
+ * while producing something a designer would actually recognize.
+ */
+const RAMP_NAMES = {
+  // Conventional palette stops, 50 (lightest) .. 950 (darkest).
+  1: [500],
+  2: [100, 900],
+  3: [100, 500, 900],
+  4: [50, 300, 700, 950],
+  5: [50, 200, 400, 600, 900],
+  6: [50, 100, 300, 500, 700, 900],
+  7: [50, 100, 200, 300, 500, 700, 900],
+  8: [50, 100, 200, 300, 400, 600, 800, 900],
+  9: [50, 100, 200, 300, 400, 500, 600, 800, 950],
+  10: [50, 100, 200, 300, 400, 500, 600, 700, 800, 950],
+};
+
+function rampCountNames(n) {
+  if (RAMP_NAMES[n]) return RAMP_NAMES[n].map(String);
+  // Beyond the table: evenly spaced stops in the 50..950 convention.
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(String(Math.round(50 + ((900 * i) / (n - 1)))));
+  return out;
+}
+
+function stepNames(steps, at, style = "index") {
   if (Array.isArray(steps)) {
-    if (!steps.length) throw new Error(at);
+    if (!steps.length) throw expandError(at);
     return steps.map(String);
   }
   const n = typeof steps === "number" ? Math.floor(steps) : NaN;
-  if (!(n >= 1)) throw new Error(at);
+  if (!(n >= 1)) throw expandError(at);
+  if (style === "ramp") return rampCountNames(n);
   return Array.from({ length: n }, (_, i) => String(i));
 }
 
@@ -52,10 +98,14 @@ function expandRamp(group, spec, at) {
   const seed = group.$value ?? spec.base;
   const parsed = parseColor(seed == null ? null : String(seed));
   if (!parsed) {
-    throw new Error(`$expand ramp at "${at}": seed "${seed}" is not a parseable color`);
+    throw expandError(`$expand ramp at "${at}": seed "${seed}" is not a parseable color`);
   }
   const { C: baseC, H: baseH } = rgbToOklch(parsed);
-  const names = stepNames(spec.steps, `$expand ramp at "${at}": steps must be a non-empty array or count`);
+  const names = stepNames(
+    spec.steps,
+    `$expand ramp at "${at}": steps must be a non-empty array or count`,
+    "ramp"
+  );
   const [lo, hi] = spec.lightness || [0.95, 0.25];
   const n = names.length;
   const out = {};
@@ -71,7 +121,7 @@ function expandRamp(group, spec, at) {
 function expandScale(spec, at) {
   const { base, ratio = 2, steps, unit = "rem" } = spec;
   if (typeof base !== "number" || !Number.isFinite(base)) {
-    throw new Error(`$expand scale at "${at}": "base" must be a number`);
+    throw expandError(`$expand scale at "${at}": "base" must be a number`);
   }
   const names = stepNames(steps, `$expand scale at "${at}": steps must be a non-empty array or count`);
   const out = {};
@@ -84,7 +134,7 @@ function expandScale(spec, at) {
 function parseLen(s, at) {
   const m = /^(-?\d*\.?\d+)(rem|px|em|ch|ex|%)$/.exec(String(s).trim());
   if (!m) {
-    throw new Error(`$expand fluid at "${at}": "${s}" is not a length with unit (rem|px|em|ch|ex|%)`);
+    throw expandError(`$expand fluid at "${at}": "${s}" is not a length with unit (rem|px|em|ch|ex|%)`);
   }
   return { v: parseFloat(m[1]), u: m[2] };
 }
@@ -94,10 +144,10 @@ function expandFluid(spec, at) {
   const a = parseLen(min, at);
   const b = parseLen(max, at);
   if (a.u !== b.u) {
-    throw new Error(`$expand fluid at "${at}": min/max units differ (${a.u} vs ${b.u})`);
+    throw expandError(`$expand fluid at "${at}": min/max units differ (${a.u} vs ${b.u})`);
   }
   if (!(vwMax > vwMin)) {
-    throw new Error(`$expand fluid at "${at}": vwMax must be greater than vwMin`);
+    throw expandError(`$expand fluid at "${at}": vwMax must be greater than vwMin`);
   }
   const names = stepNames(steps, `$expand fluid at "${at}": steps must be a non-empty array or count`);
   const slope = (b.v - a.v) / (vwMax - vwMin);
@@ -107,9 +157,15 @@ function expandFluid(spec, at) {
   for (let i = 0; i < n; i++) {
     const t = n === 1 ? 0 : i / (n - 1);
     const mid = a.v + (b.v - a.v) * t;
+    // CSS requires clamp(MIN, VAL, MAX) with MIN <= MAX. When max < min the
+    // range is descending (the value shrinks as the viewport grows) and the
+    // naive a.v/mid bounds would emit clamp(2rem, ..., 1rem) — invalid CSS
+    // that collapses to a constant. Ordering the pair keeps both directions
+    // valid; for an ascending range this is byte-identical to the old output.
+    const lo = Math.min(a.v, mid);
+    const hi = Math.max(a.v, mid);
     out[names[i]] =
-      `clamp(${fmt(a.v)}${a.u}, ${fmt(intercept)}${a.u} + ${fmt(slope * 100)}vw, ` +
-      `${fmt(n === 1 ? a.v : mid < Math.min(a.v, b.v) ? Math.min(a.v, b.v) : Math.min(mid, Math.max(a.v, b.v)))}${a.u})`;
+      `clamp(${fmt(lo)}${a.u}, ${fmt(intercept)}${a.u} + ${fmt(slope * 100)}vw, ${fmt(hi)}${a.u})`;
   }
   return out;
 }
@@ -131,19 +187,36 @@ function substitute(node, combo, at) {
   return node;
 }
 
+/**
+ * Ceiling on materialized cross combinations. The product of the dimension
+ * lengths is what actually gets allocated (one structuredClone per combo), so
+ * a compact spec like `{a:[20],b:[20],c:[20]}` would otherwise silently mint
+ * 8000 tokens and nested `$expand` groups multiply on top of that. Failing
+ * loudly here beats an out-of-memory build with no indication of the cause.
+ */
+const MAX_CROSS_COMBOS = 4096;
+
 function expandCross(spec, at) {
   const { cross, template, join = "-" } = spec;
   const keys = cross && typeof cross === "object" ? Object.keys(cross) : [];
   if (!keys.length) {
-    throw new Error(`$expand cross at "${at}": "cross" must map dimension names to non-empty arrays`);
+    throw expandError(`$expand cross at "${at}": "cross" must map dimension names to non-empty arrays`);
   }
   for (const k of keys) {
     if (!Array.isArray(cross[k]) || !cross[k].length) {
-      throw new Error(`$expand cross at "${at}": dimension "${k}" must be a non-empty array`);
+      throw expandError(`$expand cross at "${at}": dimension "${k}" must be a non-empty array`);
     }
   }
   if (!template || typeof template !== "object" || Array.isArray(template)) {
-    throw new Error(`$expand cross at "${at}": "template" must be an object`);
+    throw expandError(`$expand cross at "${at}": "template" must be an object`);
+  }
+  const total = keys.reduce((acc, k) => acc * cross[k].length, 1);
+  if (total > MAX_CROSS_COMBOS) {
+    const shape = keys.map((k) => `${k}[${cross[k].length}]`).join(" x ");
+    throw expandError(
+      `$expand cross at "${at}": ${total} combinations (${shape}) exceeds the ` +
+        `limit of ${MAX_CROSS_COMBOS}; split it into smaller $expand groups`
+    );
   }
   const out = {};
   function combos(i, acc) {
@@ -172,12 +245,12 @@ export function expandTokens(input) {
       changed = true;
       const spec = node.$expand;
       if (!spec || typeof spec !== "object" || Array.isArray(spec)) {
-        throw new Error(`$expand at "${path.join(".") || "(root)"}" must be an object`);
+        throw expandError(`$expand at "${path.join(".") || "(root)"}" must be an object`);
       }
       const kind = GENERATORS.find((g) => g in spec);
       const at = path.join(".") || "(root)";
       if (!kind) {
-        throw new Error(
+        throw expandError(
           `$expand at "${at}" must contain exactly one generator key: ${GENERATORS.join(", ")}`
         );
       }

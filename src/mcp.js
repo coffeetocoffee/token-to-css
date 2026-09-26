@@ -15,6 +15,34 @@ import {
   searchTokens,
   explainToken,
 } from "./ai.js";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * The package version reported in the MCP `initialize` handshake.
+ *
+ * Read from package.json rather than hardcoded: it was a literal "15.0.0",
+ * which is the same silent-drift trap the declaration gate exists to catch —
+ * agents would have been told the wrong version with nothing to detect it.
+ * Falls back to "0.0.0" if the manifest is not reachable (e.g. bundled).
+ */
+function packageVersion() {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    for (const up of ["..", "../.."]) {
+      try {
+        const pkg = JSON.parse(readFileSync(join(here, up, "package.json"), "utf8"));
+        if (pkg && typeof pkg.version === "string") return pkg.version;
+      } catch {
+        /* try the next level up */
+      }
+    }
+  } catch {
+    /* fall through to the default below */
+  }
+  return "0.0.0";
+}
 
 /**
  * Build an MCP context. `tokens` is the raw token tree; `serveUrl` (optional)
@@ -665,7 +693,7 @@ export function handleMcpMessage(message, ctx) {
       result: {
         protocolVersion: "2024-11-05",
         capabilities: { tools: {} },
-        serverInfo: { name: "token-to-css", version: "15.0.0" },
+        serverInfo: { name: "token-to-css", version: packageVersion() },
       },
     };
   }
