@@ -28,8 +28,14 @@ import { handleRelayPost, relayChange } from "./relay.js";
 import { createMetrics } from "./metrics.js";
 import { explainToken } from "./ai.js";
 
+// Strip a UTF-8 BOM: PowerShell's Set-Content -Encoding UTF8 writes one, and
+// readFileSync keeps it, which makes JSON.parse fail.
+function parseJSONText(text) {
+  return JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+}
+
 function readJSON(p) {
-  return JSON.parse(readFileSync(p, "utf8"));
+  return parseJSONText(readFileSync(p, "utf8"));
 }
 
 /** Resolve a token tree (optionally applying a mode/brand override). */
@@ -453,7 +459,7 @@ export function createTokenServer(options = {}) {
   // Reload a persisted CR log on boot so governance survives a restart.
   if (crLogPath && existsSync(crLogPath)) {
     try {
-      const loaded = JSON.parse(readFileSync(crLogPath, "utf8"));
+      const loaded = parseJSONText(readFileSync(crLogPath, "utf8"));
       if (Array.isArray(loaded) && loaded.length) {
         for (const cr of loaded) changeRequests.push(cr);
         metrics.seedCounter(

@@ -96,6 +96,27 @@ test("token server: REST reads, mode override, single token", async () => {
   }
 });
 
+test("token server: loads a UTF-8 BOM token file from tokensPath", async () => {
+  const { writeFileSync, mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "ttc-bom-"));
+  const file = join(dir, "tokens.json");
+  // Write the BOM explicitly, as PowerShell's Set-Content -Encoding UTF8 does.
+  writeFileSync(file, "\uFEFF" + JSON.stringify({ color: { primary: "#3b82f6" } }), "utf8");
+  const server = createTokenServer({ tokensPath: file, watch: false });
+  await new Promise((r) => server.listen(0, r));
+  const base = "http://localhost:" + server.address().port;
+  try {
+    const one = await (await fetch(base + "/tokens/color.primary")).json();
+    assert.equal(one.value, "#3b82f6");
+  } finally {
+    server.closeAll();
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("token server: GET /tokens/<path> returns 404 for inherited prototype keys", async () => {
   const tokens = { color: { primary: "#3b82f6" } };
   const server = createTokenServer({ tokens, watch: false });
