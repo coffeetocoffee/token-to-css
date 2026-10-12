@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { writeFileSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync, readFileSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -410,3 +410,55 @@ test("CLI rejects a v2 config using output and outputs together", () => {
   }
 });
 
+
+test("CLI rejects an unknown -f format with a non-zero exit and a hint", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-fmt-"));
+  try {
+    const input = join(dir, "t.json");
+    writeFileSync(input, JSON.stringify({ color: { primary: "#3b82f6" } }));
+    let status = 0;
+    let stderr = "";
+    try {
+      execFileSync("node", [CLI, input, "-f", "tailwnd", "-o", join(dir, "o.css")], { encoding: "utf8", stdio: "pipe" });
+    } catch (err) {
+      status = err.status;
+      stderr = String(err.stderr);
+    }
+    assert.notEqual(status, 0);
+    assert.match(stderr, /unknown format "tailwnd"/);
+    assert.match(stderr, /Did you mean: tailwind/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI rejects an unknown name:path output spec instead of writing a literal file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-spec-"));
+  try {
+    const input = join(dir, "t.json");
+    writeFileSync(input, JSON.stringify({ color: { primary: "#3b82f6" } }));
+    let status = 0;
+    try {
+      execFileSync("node", [CLI, input, "-o", "tailwnd:out.css"], { encoding: "utf8", stdio: "pipe", cwd: dir });
+    } catch (err) {
+      status = err.status;
+    }
+    assert.notEqual(status, 0);
+    assert.equal(existsSync(join(dir, "tailwnd:out.css")), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI accepts -f figma and emits Figma variables JSON", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ttc-figma-"));
+  try {
+    const input = join(dir, "t.json");
+    writeFileSync(input, JSON.stringify({ color: { primary: "#3b82f6" } }));
+    const out = join(dir, "figma.json");
+    execFileSync("node", [CLI, input, "-f", "figma", "-o", out], { encoding: "utf8" });
+    assert.match(readFileSync(out, "utf8"), /color/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

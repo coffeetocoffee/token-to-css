@@ -68,6 +68,7 @@ import {
   registerCmsConnector,
   registerFlutterConnector,
   registerComposeConnector,
+  registerFigmaConnector,
 } from "@token-to-css/connectors";
 
 // Eagerly register the built-in connectors' output formats so `-f storybook`,
@@ -79,6 +80,7 @@ registerGithubPrConnector({});
 registerCmsConnector({});
 registerFlutterConnector({});
 registerComposeConnector({});
+registerFigmaConnector({});
 
 const REPEATABLE = new Set(["import", "i", "glob", "g", "output", "o", "mode", "relay"]);
 
@@ -415,11 +417,45 @@ export const KNOWN_FORMATS = [
   "compose",
 ];
 
+// Reject unknown output formats instead of silently emitting plain CSS.
+// Returns an error message, or null when the format is valid.
+export function unknownFormatError(format) {
+  if (format == null || format === true) return null;
+  const name = String(format).toLowerCase();
+  if (KNOWN_FORMATS.includes(name)) return null;
+  const close = KNOWN_FORMATS.filter(
+    (f) => f.includes(name) || name.includes(f) || editDistance(f, name) <= 2
+  );
+  const hint = close.length ? ` Did you mean: ${close.join(", ")}?` : "";
+  return `unknown format "${format}".${hint} Known formats: ${KNOWN_FORMATS.join(", ")}`;
+}
+
+function editDistance(a, b) {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+  }
+  return dp[a.length][b.length];
+}
+
 function parseOutputs(list, defaultFormat) {
   return list.map((spec) => {
-    const m = /^([a-z-]+):(.+)$/i.exec(spec);
+    // Two-letter minimum avoids treating Windows drive letters (C:\...) as formats.
+    const m = /^([a-z][a-z-]+):(.+)$/i.exec(spec);
     if (m && KNOWN_FORMATS.includes(m[1].toLowerCase())) {
       return { format: m[1].toLowerCase(), path: m[2] };
+    }
+    if (m) {
+      const err = unknownFormatError(m[1]);
+      console.error(`error: output "${spec}": ${err}`);
+      process.exit(1);
     }
     return { format: null, path: spec };
   });
@@ -768,6 +804,12 @@ export function run(argv = process.argv.slice(2)) {
   }
 
   const options = { format: args.format || args.f || config.format || "css" };
+  const badFormat = unknownFormatError(options.format);
+  if (badFormat) {
+    console.error(`error: ${badFormat}`);
+    process.exitCode = 1;
+    return 1;
+  }
   if (args.selector || args.s) options.selector = args.selector || args.s;
   else if (config.selector) options.selector = config.selector;
   if (args.theme || args.t) options.theme = args.theme || args.t;
