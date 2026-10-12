@@ -56,6 +56,24 @@ test("README ramp example: 'light' bounds are honoured (not silently ignored)", 
   assert.notDeepEqual(withLight, defaults, "light bounds must change the output");
 });
 
+test("ramp lightness: fractions and percentages are equivalent", () => {
+  const ramp = (lightness) =>
+    expandTokens({
+      c: { $value: "#3b82f6", $expand: { ramp: { lightness, steps: [100, 700] } } },
+    }).tokens.c;
+  assert.deepEqual(ramp([0.2, 0.8]), ramp([20, 80]));
+});
+
+test("ramp lightness: mixed fraction and percentage bounds throw instead of guessing", () => {
+  for (const lightness of [[0.2, 80], [20, 0.8], [1, 80]]) {
+    assert.throws(
+      () => expandTokens({ c: { $value: "#3b82f6", $expand: { ramp: { lightness, steps: [100] } } } }),
+      /mixes fractions and percentages/,
+      JSON.stringify(lightness)
+    );
+  }
+});
+
 test("README fluid example: unitless min is rejected with a clear error", () => {
   assert.throws(
     () =>

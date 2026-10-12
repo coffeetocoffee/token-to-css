@@ -111,8 +111,17 @@ function lightnessBounds(spec, at) {
   ) {
     throw expandError(`$expand ramp at "${at}": lightness must be two non-negative numbers`);
   }
-  const pct = raw[0] > 1 && raw[1] > 1;
-  return pct ? [raw[0] / 100, raw[1] / 100] : raw;
+  const hiBounds = raw.map((v) => v > 1);
+  // Mixed bounds (one fraction, one percentage) are ambiguous; guessing wrong
+  // silently produces a near-black or near-white ramp, so refuse instead.
+  if (hiBounds[0] !== hiBounds[1] && (raw[0] > 1 || raw[1] > 1)) {
+    throw expandError(
+      `$expand ramp at "${at}": lightness ${JSON.stringify(raw)} mixes fractions and percentages; ` +
+        `use both fractions (e.g. [0.2, 0.8]) or both percentages (e.g. [20, 80])`
+    );
+  }
+  if (raw.every((v) => v <= 1)) return raw;
+  return raw.map((v) => v / 100);
 }
 
 function expandRamp(group, spec, at) {
