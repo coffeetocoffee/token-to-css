@@ -103,7 +103,7 @@ import {
 
 export { parseLocated } from "./locate.js";
 export { buildClientJS } from "./client.js";
-export { deepMerge, mergeTokens } from "./merge.js";
+export { deepMerge, mergeTokens, parseJSONText } from "./merge.js";
 export { mapToBarefoot, BAREFOOT_MAP } from "./presets/barefoot.js";
 export { TAILWIND_MAP } from "./presets/tailwind.js";
 export { OPENPROPS_MAP } from "./presets/open-props.js";

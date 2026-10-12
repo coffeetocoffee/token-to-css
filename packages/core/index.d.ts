@@ -168,6 +168,8 @@ export function deepMerge<T extends Record<string, any>>(
   target: T,
   source: Record<string, any>
 ): T;
+/** JSON.parse for file text; strips a leading UTF-8 BOM (PowerShell writes one). */
+export function parseJSONText(text: string): any;
 /** Deep-merge `imports` in order, with `main` last so it wins. Returns a new object. */
 export function mergeTokens(
   main: Record<string, any>,

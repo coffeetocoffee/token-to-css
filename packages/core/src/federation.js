@@ -1,4 +1,4 @@
-import { deepMerge } from "./merge.js";
+import { deepMerge, parseJSONText } from "./merge.js";
 import { lintTokens, checkContract } from "./lint.js";
 import { buildNameRegistry } from "./registry.js";
 import { semverSatisfies, analyzeLockfile } from "./release.js";
@@ -50,7 +50,7 @@ function getByPathLocal(node, path) {
 export function buildOrgManifest(manifestPath) {
   needFs();
   const resolved = resolvePath(manifestPath);
-  const raw = JSON.parse(readFileSync(resolved, "utf8"));
+  const raw = parseJSONText(readFileSync(resolved, "utf8"));
   return validateManifest(raw, resolved);
 }
 
@@ -180,7 +180,7 @@ export function resolvePackage(ref, { packages = {}, registryDir = null } = {}) 
   }
   const version = versions[versions.length - 1];
   const path = resolvePath(dir, `${version}.json`);
-  const tree = JSON.parse(readFileSync(path, "utf8"));
+  const tree = parseJSONText(readFileSync(path, "utf8"));
   return { name, version, tree, path };
 }
 
@@ -190,7 +190,7 @@ export function resolvePackage(ref, { packages = {}, registryDir = null } = {}) 
  * Remote (package) teams default to priority -1 so they lose to local teams.
  *
  * v11.0: the result also carries:
- *  - `origins`: `{ [dotted.path]: { org, team } }` — which team/org last
+ *  - `origins`: `{ [dotted.path]: { org, team } }` â€” which team/org last
  *    supplied each merged token value (token provenance across orgs).
  *  - `resolvedPackages`: `{ [team]: { name, version } }` for package teams.
  */
@@ -213,7 +213,7 @@ export function resolveOrgTree(manifest) {
       raw = pkg.tree;
     } else {
       needFs();
-      raw = JSON.parse(readFileSync(config.path, "utf8"));
+      raw = parseJSONText(readFileSync(config.path, "utf8"));
     }
     teamTrees[name] = raw;
 
@@ -318,7 +318,7 @@ export function mergeRegistries(registries) {
 /**
  * Merge per-org, per-team canonical name registries into one federated
  * registry (v11.0). Canonical names grow an org segment:
- * `org:team:canonical` — so two orgs that both have `color.primary` keep
+ * `org:team:canonical` â€” so two orgs that both have `color.primary` keep
  * distinct, losslessly round-trippable names.
  *
  * `orgRegistries` is `{ [org]: { [team]: registry } }` (a bare registry is
@@ -463,7 +463,7 @@ export function validateFederatedManifest(manifest, basePath = ".") {
 export function buildFederatedManifest(manifestPath) {
   needFs();
   const resolved = resolvePath(manifestPath);
-  const raw = JSON.parse(readFileSync(resolved, "utf8"));
+  const raw = parseJSONText(readFileSync(resolved, "utf8"));
   return validateFederatedManifest(raw, resolved);
 }
 
@@ -533,8 +533,8 @@ export function analyzeCrossOrgLock(lock, registryDir, { nextVersion = null } = 
   if (!next) {
     throw new Error(`version ${nextVersion} of ${lock.package} not found in ${registryDir}`);
   }
-  const prevTokens = JSON.parse(readFileSync(prev.path, "utf8"));
-  const nextTokens = JSON.parse(readFileSync(next.path, "utf8"));
+  const prevTokens = parseJSONText(readFileSync(prev.path, "utf8"));
+  const nextTokens = parseJSONText(readFileSync(next.path, "utf8"));
   const result = analyzeLockfile(lock, prevTokens, nextTokens, next.version);
   return {
     package: lock.package,
@@ -546,7 +546,7 @@ export function analyzeCrossOrgLock(lock, registryDir, { nextVersion = null } = 
 
 /**
  * Run lintTokens and checkContract across every team's token set.
- * Returns a map of team name → lint results.
+ * Returns a map of team name â†’ lint results.
  */
 export function lintOrg(manifest, contract = null) {
   const results = {};
@@ -554,7 +554,7 @@ export function lintOrg(manifest, contract = null) {
     try {
       const raw = config.package
         ? resolvePackage(config, { packages: manifest.packages || {} }).tree
-        : (needFs(), JSON.parse(readFileSync(config.path, "utf8")));
+        : (needFs(), parseJSONText(readFileSync(config.path, "utf8")));
       const lintResult = lintTokens(raw);
       const contractResult = contract ? checkContract(raw, contract) : null;
       results[name] = {

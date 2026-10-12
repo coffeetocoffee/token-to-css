@@ -43,6 +43,7 @@ import {
   validateFederatedManifest,
   resolveFederatedTree,
   analyzeCrossOrgLock,
+  parseJSONText,
 } from "@token-to-css/core";
 import {
   lintConsumer,
@@ -237,7 +238,7 @@ Subcommands:
 }
 
 function readTokensFile(p) {
-  return JSON.parse(readFileSync(resolve(process.cwd(), p), "utf8"));
+  return parseJSONText(readFileSync(resolve(process.cwd(), p), "utf8"));
 }
 
 function readLocated(p) {
@@ -380,14 +381,14 @@ function normalizeConfig(raw) {
 
 function loadConfig(configPath) {
   if (!configPath) return {};
-  return normalizeConfig(JSON.parse(readFileSync(configPath, "utf8")));
+  return normalizeConfig(parseJSONText(readFileSync(configPath, "utf8")));
 }
 
 function readPackageConfig() {
   const p = resolve(process.cwd(), "package.json");
   if (!existsSync(p)) return null;
   try {
-    const pkg = JSON.parse(readFileSync(p, "utf8"));
+    const pkg = parseJSONText(readFileSync(p, "utf8"));
     if (pkg && pkg.tokenToCss) return normalizeConfig(pkg.tokenToCss);
   } catch {
     return null;
@@ -463,7 +464,7 @@ function parseOutputs(list, defaultFormat) {
 
 function enforceContract(merged, contractPath) {
   if (!contractPath) return;
-  const schema = JSON.parse(
+  const schema = parseJSONText(
     readFileSync(resolve(process.cwd(), contractPath), "utf8")
   );
   checkContract(merged, schema);
@@ -488,7 +489,7 @@ function safeWrite(path, content) {
 function generateAll(paths, options, outputs, deepGroups = []) {
   try {
     if (options.mapPath) {
-      options.map = JSON.parse(readFileSync(options.mapPath, "utf8"));
+      options.map = parseJSONText(readFileSync(options.mapPath, "utf8"));
     }
     const { merged, loc, sourcesContent } = loadLocated(paths, deepGroups);
     if (options.stdinText) {
@@ -551,7 +552,7 @@ function generateAll(paths, options, outputs, deepGroups = []) {
 function checkAll(paths, options, outputs, deepGroups = []) {
   try {
     if (options.mapPath) {
-      options.map = JSON.parse(readFileSync(options.mapPath, "utf8"));
+      options.map = parseJSONText(readFileSync(options.mapPath, "utf8"));
     }
     const { merged, loc, sourcesContent } = loadLocated(paths, deepGroups);
     if (options.stdinText) {
@@ -735,8 +736,8 @@ export function run(argv = process.argv.slice(2)) {
       return 1;
     }
     try {
-      const ta = JSON.parse(readFileSync(resolve(process.cwd(), a), "utf8"));
-      const tb = JSON.parse(readFileSync(resolve(process.cwd(), b), "utf8"));
+      const ta = parseJSONText(readFileSync(resolve(process.cwd(), a), "utf8"));
+      const tb = parseJSONText(readFileSync(resolve(process.cwd(), b), "utf8"));
       const d = diffTokens(ta, tb);
       const fmt = ([k, v]) => `  ${k}: ${v}`;
       let out = "";
@@ -837,7 +838,7 @@ export function run(argv = process.argv.slice(2)) {
   options.auth = null;
   if (args.auth || config.auth) {
     const authPath = resolve(process.cwd(), args.auth || config.auth);
-    const authJson = JSON.parse(readFileSync(authPath, "utf8"));
+    const authJson = parseJSONText(readFileSync(authPath, "utf8"));
     let map = {};
     if (Array.isArray(authJson)) map = Object.fromEntries(authJson.map((t) => [t.token, t.scope]));
     else if (authJson.tokens) map = Object.fromEntries(authJson.tokens.map((t) => [t.token, t.scope]));
@@ -868,7 +869,7 @@ export function run(argv = process.argv.slice(2)) {
   if (sub === "lint") {
     try {
       if (options.mapPath) {
-        options.map = JSON.parse(readFileSync(options.mapPath, "utf8"));
+        options.map = parseJSONText(readFileSync(options.mapPath, "utf8"));
       }
       const { merged } = loadLocated(rebuildPaths(), rebuildDeepGroups());
       if (options.stdinText) {
@@ -909,7 +910,7 @@ export function run(argv = process.argv.slice(2)) {
   if (sub === "kit") {
     try {
       if (options.mapPath) {
-        options.map = JSON.parse(readFileSync(options.mapPath, "utf8"));
+        options.map = parseJSONText(readFileSync(options.mapPath, "utf8"));
       }
       const { merged } = loadLocated(rebuildPaths(), rebuildDeepGroups());
       if (options.stdinText) {
@@ -964,7 +965,7 @@ export function run(argv = process.argv.slice(2)) {
       const text = readFileSync(resolve(process.cwd(), file), "utf8");
       let reverseOptions = options;
       if (args.registry) {
-        const regJson = JSON.parse(
+        const regJson = parseJSONText(
           readFileSync(resolve(process.cwd(), args.registry), "utf8")
         );
         reverseOptions = { ...options, registry: registryFromJSON(regJson) };
@@ -1014,7 +1015,7 @@ export function run(argv = process.argv.slice(2)) {
         process.exitCode = 1;
         return 1;
       }
-      const read = (f) => JSON.parse(readFileSync(resolve(process.cwd(), f), "utf8"));
+      const read = (f) => parseJSONText(readFileSync(resolve(process.cwd(), f), "utf8"));
       let prevName = files[0];
       let prev = read(prevName);
       for (let i = 1; i < files.length; i++) {
@@ -1107,7 +1108,7 @@ export function run(argv = process.argv.slice(2)) {
             generate();
             return;
           }
-          const source = JSON.parse(readFileSync(sourceFile, "utf8"));
+          const source = parseJSONText(readFileSync(sourceFile, "utf8"));
           const { source: updated, changed, skipped } = applyReversedIntoSource(source, reversed);
           if (changed.length === 0 && skipped.length === 0) return;
           writeFileSync(sourceFile, `${JSON.stringify(updated, null, 2)}\n`, "utf8");
@@ -1315,7 +1316,7 @@ export function run(argv = process.argv.slice(2)) {
 
       // v11.0 cross-org federation: a manifest with an `orgs` key composes
       // whole org manifests (local paths or published token packages).
-      const rawManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      const rawManifest = parseJSONText(readFileSync(manifestPath, "utf8"));
       if (rawManifest && rawManifest.orgs) {
         const fed = validateFederatedManifest(rawManifest, manifestPath);
         const { merged, orgTrees, origins } = resolveFederatedTree(fed);
@@ -1807,7 +1808,7 @@ export function run(argv = process.argv.slice(2)) {
       const files = readdirSync(dir).filter((f) => f.endsWith(".json")).sort();
       const checkpoints = files.map((f) => ({
         id: f,
-        tree: JSON.parse(readFileSync(joinPath(dir, f), "utf8")),
+        tree: parseJSONText(readFileSync(joinPath(dir, f), "utf8")),
       }));
       const r = bisectToken(checkpoints, tokenPath);
       if (!r.found) {

@@ -26,6 +26,15 @@ function safeCopy(value) {
   return out;
 }
 
+/**
+ * JSON.parse for text read from disk. Strips a leading UTF-8 BOM, which
+ * PowerShell's `Set-Content -Encoding UTF8` writes and `readFileSync` keeps;
+ * without this, JSON.parse rejects an otherwise valid file.
+ */
+export function parseJSONText(text) {
+  return JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+}
+
 export function deepMerge(target, source) {
   for (const [key, value] of Object.entries(source)) {
     if (UNSAFE_KEYS.has(key)) continue;

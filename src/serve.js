@@ -23,16 +23,11 @@ import {
   timingSafeTokenLookup,
 } from "@token-to-css/core";
 import { buildEditorHTML, previewEdit, previewBatchEdit } from "./editor.js";
+import { parseJSONText } from "@token-to-css/core";
 import { getConnector, listConnectors } from "@token-to-css/connectors";
 import { handleRelayPost, relayChange } from "./relay.js";
 import { createMetrics } from "./metrics.js";
 import { explainToken } from "./ai.js";
-
-// Strip a UTF-8 BOM: PowerShell's Set-Content -Encoding UTF8 writes one, and
-// readFileSync keeps it, which makes JSON.parse fail.
-function parseJSONText(text) {
-  return JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
-}
 
 function readJSON(p) {
   return parseJSONText(readFileSync(p, "utf8"));
