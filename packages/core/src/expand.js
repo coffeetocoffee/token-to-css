@@ -94,6 +94,27 @@ function stepNames(steps, at, style = "index") {
   return Array.from({ length: n }, (_, i) => String(i));
 }
 
+/**
+ * Resolve the ramp's lightness bounds. `lightness` is the canonical key: two
+ * fractions in 0..1 (default [0.95, 0.25]). `light` is accepted as an alias
+ * because the README documented it, and was silently ignored before. Its
+ * values may be percentages (e.g. [20, 80]); if both exceed 1 they are read as
+ * percentages and divided by 100.
+ */
+function lightnessBounds(spec, at) {
+  const raw = spec.lightness !== undefined ? spec.lightness : spec.light;
+  if (raw === undefined) return [0.95, 0.25];
+  if (
+    !Array.isArray(raw) ||
+    raw.length !== 2 ||
+    !raw.every((v) => typeof v === "number" && Number.isFinite(v) && v >= 0)
+  ) {
+    throw expandError(`$expand ramp at "${at}": lightness must be two non-negative numbers`);
+  }
+  const pct = raw[0] > 1 && raw[1] > 1;
+  return pct ? [raw[0] / 100, raw[1] / 100] : raw;
+}
+
 function expandRamp(group, spec, at) {
   const seed = group.$value ?? spec.base;
   const parsed = parseColor(seed == null ? null : String(seed));
@@ -106,7 +127,7 @@ function expandRamp(group, spec, at) {
     `$expand ramp at "${at}": steps must be a non-empty array or count`,
     "ramp"
   );
-  const [lo, hi] = spec.lightness || [0.95, 0.25];
+  const [lo, hi] = lightnessBounds(spec, at);
   const n = names.length;
   const out = {};
   for (let i = 0; i < n; i++) {

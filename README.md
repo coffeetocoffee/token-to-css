@@ -119,7 +119,7 @@ Declare patterns once, emit families automatically:
 }
 ```
 
-Generates `color.brand.100` through `color.brand.700` using OKLCH for perceptual uniformity.
+Generates `color.brand.100` through `color.brand.700` using OKLCH for perceptual uniformity. `lightness` (or its alias `light`) sets the bounds as fractions in 0..1, or as percentages such as `[20, 80]`; the first value applies to the first step. The default is `[0.95, 0.25]`.
 
 ### Scales & spacing
 
@@ -148,9 +148,9 @@ Creates `spacing.xs`, `spacing.sm`, ... as `4px`, `6px`, `9px`, etc.
     "size": {
       "$expand": {
         "fluid": {
-          "property": "fontSize",
-          "min": 14,
-          "max": 24,
+          "min": "14px",
+          "max": "24px",
+          "steps": ["sm", "md", "lg"],
           "vwMin": 320,
           "vwMax": 1200
         }
@@ -158,9 +158,9 @@ Creates `spacing.xs`, `spacing.sm`, ... as `4px`, `6px`, `9px`, etc.
       "display": {
         "$expand": {
           "fluid": {
-            "property": "fontSize",
-            "min": 32,
-            "max": 64,
+            "min": "32px",
+            "max": "64px",
+            "steps": ["sm", "lg"],
             "vwMin": 480,
             "vwMax": 1600
           }
@@ -171,7 +171,7 @@ Creates `spacing.xs`, `spacing.sm`, ... as `4px`, `6px`, `9px`, etc.
 }
 ```
 
-Outputs CSS `font-size: clamp(14px, 2vw + 10px, 24px)` style formulas.
+`min` and `max` need a length unit (`rem`, `px`, `em`, `ch`, `ex`, or `%`), and both must use the same one. `steps` is required. Each step is a `clamp()` that interpolates linearly from `min` at `vwMin` to `max` at `vwMax`. Steps run from `min` (first step) to `max` (last step). For the `lg` step above, the output is `clamp(14px, 10.3636px + 1.1364vw, 24px)`.
 
 ### Component cross-products
 
@@ -198,19 +198,20 @@ Produces `button.primary-sm`, `button.secondary-md`, `button.ghost-lg`, each wit
 ### CLI usage
 
 ```bash
-# Expand only, output JSON with generated token provenance
-token-to-css tokens.json --generators --as-json
+# Preview generated tokens (add --json for machine-readable output)
+token-to-css expand --generators tokens.json
+token-to-css expand --generators tokens.json --json
 
-# Full build with expansion before refs/themes
+# Full build; $expand blocks materialize automatically before refs/themes
 token-to-css tokens.json -o css:theme.css
 ```
 
 ### API
 
 ```js
-import { expandTokens } from "token-to-css";
+import { expandTokens } from "@token-to-css/core";
 const { tokens, generated } = expandTokens(input);
-// generated: [{ path, name, kind, provenance, semver }]
+// generated: [{ path, kind }]   kind is "ramp" | "scale" | "fluid" | "cross"
 ```
 
 <br>
