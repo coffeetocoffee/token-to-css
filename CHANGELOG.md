@@ -5,6 +5,44 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [17.1.0] - 2026-10-12
+
+Fixes from a second static review: unknown output formats no longer succeed
+silently, the `$expand` documentation now matches the implementation, and
+Windows-authored (UTF-8 BOM) token files load in every command.
+
+### Fixed
+
+- **Unknown `-f` formats exit non-zero.** Previously any unrecognised format fell
+  through to plain CSS with exit 0. The CLI now rejects it with a "did you mean"
+  hint. A `name:path` output spec with an unknown name is rejected instead of
+  writing a literal file named `name:path`.
+- **`-f figma` produces output.** The format was advertised in the help text but
+  the CLI never registered it.
+- **UTF-8 BOM token files load everywhere.** `serve` refused BOM-prefixed files
+  that the CLI accepted by accident. A shared `parseJSONText` helper now strips the
+  BOM at every file-read site in the CLI, serve, adopt, and federation.
+- **`GET /tokens/<path>` no longer resolves inherited names.** `constructor`,
+  `toString`, `__proto__`, and similar now return 404 instead of 200.
+- **`$expand` ramp `light` is honoured.** It was silently ignored; it is now an
+  alias for `lightness`. Mixed fraction/percentage bounds such as `[0.2, 80]` throw
+  instead of silently producing the wrong ramp.
+
+### Changed
+
+- The `$expand` README examples were corrected: fluid `min`/`max` need units and
+  `steps` is required; the CLI command is `expand --generators [--json]`
+  (`--as-json` never existed); the generated-entry shape is `{ path, kind }`.
+- `packages/eslint-plugin` and `packages/stylelint-plugin` resolve their
+  `token-to-css` peer dependency to the local package in development, so
+  `npm ls` is clean. The published peer range is unchanged.
+
+### Tests
+
+- 464 tests pass, including new coverage for prototype-key 404s, BOM loading, the
+  format rejection and figma registration, README `$expand` execution, and the
+  lightness rule.
+
 ## [17.0.0] - 2026-09-25
 
 Eleven findings from a full static audit are fixed, and four zero-dependency
@@ -980,7 +1018,8 @@ connectors graduate it.)
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v17.0.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v17.1.0...HEAD
+[17.1.0]: https://github.com/coffeetocoffee/token-to-css/compare/v17.0.0...v17.1.0
 [17.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v15.0.0...v17.0.0
 [15.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v14.0.0...v15.0.0
 [14.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v12.3.0...v14.0.0
