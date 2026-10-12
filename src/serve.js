@@ -54,10 +54,13 @@ export function resolveTree(raw, { mode, brand } = {}) {
   return resolveReferences(merged, { reduce: true });
 }
 
+// Only own properties are reachable. Inherited names (`constructor`,
+// `toString`, `__proto__`, ...) must not resolve as tokens.
 function getByPath(node, path) {
   let cur = node;
   for (const p of path) {
-    if (cur == null) return undefined;
+    if (cur == null || typeof cur !== "object") return undefined;
+    if (!Object.prototype.hasOwnProperty.call(cur, p)) return undefined;
     cur = cur[p];
   }
   return cur;
@@ -331,14 +334,9 @@ export function createTokenServer(options = {}) {
   // one. OPTIONS preflights are answered before the auth gate (browsers do
   // not send Authorization on preflights).
   //
-  // v15 hardening: a wildcard origin must not advertise the write surface.
-  // `cors: true` previously sent Allow-Methods: "GET, POST, OPTIONS" and
-  // Allow-Headers: "Authorization" to every origin — telling any page on the
-  // internet that this server has a credentialled POST API, on a server whose
-  // whole job is writing JSON to disk. A wildcard preflight now offers GET and
-  // OPTIONS only; POST and Authorization are advertised only when the origin
-  // is pinned to one value. (Wildcard origins cannot carry credentials in the
-  // browser regardless, so nothing legitimate is lost.)
+  // The preflight advertises the same methods/headers for every origin (see the
+  // NOTE in the OPTIONS branch below): `cors: true` and a pinned origin both get
+  // POST + Authorization, which the hosted playground's write path requires.
   const corsOrigin =
     options.cors === true ? "*" : typeof options.cors === "string" ? options.cors : null;
   const corsWildcard = corsOrigin === "*";

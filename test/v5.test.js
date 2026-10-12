@@ -96,6 +96,22 @@ test("token server: REST reads, mode override, single token", async () => {
   }
 });
 
+test("token server: GET /tokens/<path> returns 404 for inherited prototype keys", async () => {
+  const tokens = { color: { primary: "#3b82f6" } };
+  const server = createTokenServer({ tokens, watch: false });
+  await new Promise((r) => server.listen(0, r));
+  const base = "http://localhost:" + server.address().port;
+  try {
+    for (const p of ["__proto__", "constructor", "constructor.prototype", "toString", "color.constructor"]) {
+      const res = await fetch(base + "/tokens/" + p);
+      assert.equal(res.status, 404, "expected 404 for " + p);
+    }
+  } finally {
+    server.closeAll();
+    server.close();
+  }
+});
+
 test("token server: write scope folds a POST and pushes via SSE", async () => {
   const tokens = { color: { primary: "#3b82f6" } };
   const server = createTokenServer({ tokens, watch: false, streamUrl: "/events" });

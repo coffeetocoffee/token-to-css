@@ -9,6 +9,9 @@
     "token-to-css": ">=9.0.0"
   },
   "dependencies": {},
+  "devDependencies": {
+    "token-to-css": "file:../.."
+  },
   "files": [
     "index.js"
   ]
