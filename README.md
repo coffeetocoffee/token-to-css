@@ -200,7 +200,7 @@ Produces `button.primary-sm`, `button.secondary-md`, `button.ghost-lg`, each wit
 ```bash
 # Preview generated tokens (add --json for machine-readable output)
 token-to-css expand --generators tokens.json
-token-to-css expand --generators tokens.json --json
+token-to-css expand --generators tokens.json --json   # {"generated": [{"path", "kind"}], "expanded": {...}}
 
 # Full build; $expand blocks materialize automatically before refs/themes
 token-to-css tokens.json -o css:theme.css
