@@ -20,6 +20,7 @@ import {
   approveChangeRequest,
   rejectChangeRequest,
   applyChangeRequest,
+  seedChangeRequestIds,
   timingSafeTokenLookup,
 } from "@token-to-css/core";
 import { buildEditorHTML, previewEdit, previewBatchEdit } from "./editor.js";
@@ -510,11 +511,24 @@ export function createTokenServer(options = {}) {
   }
 
   // Reload a persisted CR log on boot so governance survives a restart.
+  // A duplicated id (from a pre-fix log, or two processes writing one file) is
+  // surfaced as a 409 rather than resolved by `find`'s first-match-wins, which
+  // would apply the wrong change to the source of truth.
+  function findChangeRequest(crId) {
+    const matches = changeRequests.filter((c) => c.id === crId);
+    if (matches.length > 1) return { error: "ambiguous" };
+    return { cr: matches[0] || null };
+  }
+
   if (crLogPath && existsSync(crLogPath)) {
     try {
       const loaded = parseJSONText(readFileSync(crLogPath, "utf8"));
       if (Array.isArray(loaded) && loaded.length) {
         for (const cr of loaded) changeRequests.push(cr);
+        // Continue the id sequence past the reloaded log: a fresh process
+        // would otherwise reissue `cr-1`, and `find` (first match wins) would
+        // apply the OLD proposal on approval.
+        seedChangeRequestIds(loaded);
         metrics.seedCounter(
           "token_to_css_change_requests_total",
           "Total change-requests created (by status)",
@@ -613,10 +627,20 @@ export function createTokenServer(options = {}) {
     // v11.0: with `options.org` set, org-aware resolvers (`createOrgAuth`)
     // receive `(token, org)` so org rooms are enforced — a foreign org's
     // token resolves to null (401).
+    // v17.2.2: the team room is derived from the route and passed to the
+    // resolver, so `/teams/<team>/...` is actually team-scoped. Previously the
+    // team was never passed, which made every team-scoped credential an
+    // effective global write credential (an authorisation bypass).
     if (auth) {
       const header = req.headers["authorization"] || "";
       const m = /^Bearer\s+(.+)$/i.exec(header);
       const token = m ? m[1].trim() : null;
+
+      // The room this request addresses: `/teams/<team>/...` is that team's
+      // room; every other route is the global room (represented as `"*"`).
+      const teamMatch = /^\/teams\/([^/]+)(?:\/|$)/.exec(path);
+      const routeTeam = teamMatch ? decodeURIComponent(teamMatch[1]) : "*";
+
       // A plain-object `auth` map is addressed with a constant-time lookup:
       // `auth[token]` would short-circuit on the first differing byte and leak
       // how much of a valid token the caller guessed. Resolver FUNCTIONS own
@@ -625,23 +649,31 @@ export function createTokenServer(options = {}) {
       const scope = token
         ? typeof auth === "function"
           ? selfOrg && auth.orgAware
-            ? auth(token, selfOrg)
-            : auth(token)
+            ? auth(token, selfOrg, routeTeam)
+            : auth(token, routeTeam)
           : timingSafeTokenLookup(auth, token) || null
         : null;
-      // v11.0 org trust: a token that is valid for *some* org but not this
-      // server's org is forbidden (403), not unauthorized (401) — org A's
-      // write token can never mutate org B's source.
+
+      // v11.0 org trust / v17.2.2 team trust: a token that exists but is not
+      // valid for THIS room is forbidden (403), not unauthorized (401).
+      // `isKnown` (set by createNamespacedAuth / createOrgAuth) distinguishes
+      // the two; without it we fall back to the old org-only check.
       if (
         !scope &&
-        selfOrg &&
         typeof auth === "function" &&
-        auth.orgAware &&
         token &&
-        auth(token)
+        (typeof auth.isKnown === "function"
+          ? auth.isKnown(token)
+          : selfOrg && auth.orgAware && auth(token))
       ) {
         res.writeHead(403, { "content-type": "text/plain" });
-        res.end(`forbidden: token is not valid for org "${selfOrg}"`);
+        res.end(
+          routeTeam !== "*"
+            ? `forbidden: token is not valid for team "${routeTeam}"`
+            : selfOrg
+              ? `forbidden: token is not valid for org "${selfOrg}"`
+              : "forbidden: token is not valid for this scope"
+        );
         return;
       }
       if (!scope) {
@@ -759,6 +791,12 @@ export function createTokenServer(options = {}) {
 
           if (!tokensPath) {
             const { source, changed } = applyReversedIntoSource(sourceTree, incoming);
+            // Resolve BEFORE responding: setTokens() broadcasts, which resolves
+            // the tree and would throw AFTER the 200 was already sent (a
+            // malformed value would then hit the catch below and fail with
+            // ERR_HTTP_HEADERS_SENT). Reject the write instead, so an
+            // authoring mistake is a clean 400 and the tree stays valid.
+            resolveTree(source);
             const dt = (performance.now() - t0) / 1000;
             metrics.observeHistogram(
               "token_to_css_fold_latency_seconds",
@@ -784,6 +822,9 @@ export function createTokenServer(options = {}) {
             res.end(JSON.stringify({ ok: true, changed: 0 }));
             return;
           }
+          // Resolve before persisting/responding — see the in-memory branch:
+          // a malformed value must be a 400, not a crash after the write.
+          resolveTree(source);
           writeFileSync(tokensPath, `${JSON.stringify(source, null, 2)}\n`, "utf8");
           sourceTree = source;
           channelTrees.stable = sourceTree;
@@ -928,7 +969,17 @@ export function createTokenServer(options = {}) {
 
     if (req.method === "POST" && path.startsWith("/change-requests/") && path.endsWith("/approve")) {
       const crId = path.split("/")[2];
-      const cr = changeRequests.find((c) => c.id === crId);
+      const { cr, error: lookupError } = findChangeRequest(crId);
+      if (lookupError === "ambiguous") {
+        res.writeHead(409, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: `ambiguous change-request id "${crId}" — multiple records share it`,
+          })
+        );
+        return;
+      }
       if (!cr) {
         res.writeHead(404, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: "change request not found" }));
@@ -957,7 +1008,17 @@ export function createTokenServer(options = {}) {
 
     if (req.method === "POST" && path.startsWith("/change-requests/") && path.endsWith("/reject")) {
       const crId = path.split("/")[2];
-      const cr = changeRequests.find((c) => c.id === crId);
+      const { cr, error: lookupError } = findChangeRequest(crId);
+      if (lookupError === "ambiguous") {
+        res.writeHead(409, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: `ambiguous change-request id "${crId}" — multiple records share it`,
+          })
+        );
+        return;
+      }
       if (!cr) {
         res.writeHead(404, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: "change request not found" }));

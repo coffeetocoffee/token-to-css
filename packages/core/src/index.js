@@ -47,6 +47,7 @@ import {
   approveChangeRequest,
   rejectChangeRequest,
   applyChangeRequest,
+  seedChangeRequestIds,
 } from "./governance.js";
 import {
   getImpactGraph,
@@ -142,6 +143,7 @@ export {
   approveChangeRequest,
   rejectChangeRequest,
   applyChangeRequest,
+  seedChangeRequestIds,
 } from "./governance.js";
 export {
   getImpactGraph,

@@ -50,20 +50,35 @@ export function createNamespacedAuth(authConfig) {
 
   const tokenMap = authConfig.tokens;
 
-  return function resolveAuth(token, team = null) {
+  function resolveAuth(token, team = "*") {
     const entry = timingSafeTokenLookup(tokenMap, token);
     if (!entry) return null;
 
     const { scope, teams } = entry;
 
-    if (!team || !teams) return scope;
+    // No team list at all: the token is not team-scoped (a plain global
+    // credential), so it is valid everywhere.
+    if (!teams) return scope;
 
+    // A wildcard token reaches every room, including the global one.
     if (teams.includes("*")) return scope;
 
-    if (teams.includes(team)) return scope;
+    // Otherwise the token is confined to its teams. The global room is named
+    // "*", which a team-scoped token does not include, so it cannot act on
+    // global routes (`GET`/`POST /tokens`, `/change-requests`, …) — only on
+    // `/teams/<its-team>/...`.
+    if (Array.isArray(team) && team.length) return teams.some((t) => teams.includes(t)) ? scope : null;
+
+    if (team && teams.includes(team)) return scope;
 
     return null;
-  };
+  }
+
+  // Lets a caller distinguish "unknown token" (401) from "known token, wrong
+  // room" (403) without exposing the token map.
+  resolveAuth.isKnown = (token) => Boolean(timingSafeTokenLookup(tokenMap, token));
+
+  return resolveAuth;
 }
 
 /**
@@ -82,10 +97,10 @@ export function createFlatNamespacedAuth(flatMap) {
  * Create a namespaced auth middleware for use with createTokenServer.
  * Returns a function that can be passed as `options.auth` to the server.
  */
-export function createNamespacedMiddleware(authConfig, allowedTeams = []) {
+export function createNamespacedMiddleware(authConfig, allowedTeams = ["*"]) {
   const resolver = createNamespacedAuth(authConfig);
 
-  return function resolveAuth(token, team = null) {
+  return function resolveAuth(token, team = "*") {
     const scope = resolver(token, team);
     if (!scope) return null;
 
@@ -120,19 +135,27 @@ export function createOrgAuth(authConfig) {
   }
   const tokenMap = authConfig.tokens;
 
-  function resolveOrgAuth(token, org = null, team = null) {
+function resolveOrgAuth(token, org = null, team = "*") {
     const entry = timingSafeTokenLookup(tokenMap, token);
     if (!entry) return null;
     const { scope, org: tokenOrg, teams } = entry;
     if (!scope) return null;
     if (tokenOrg && tokenOrg !== "*" && org && tokenOrg !== org) return null;
-    if (!team || !teams) return scope;
-    if (teams.includes("*") || teams.includes(team)) return scope;
+    // Not team-scoped: valid for every team and for the global room.
+    if (!teams) return scope;
+    if (teams.includes("*")) return scope;
+    // Team-scoped: confined to its own rooms. "*" is the global room, which a
+    // team-scoped token does not hold, so it cannot act on global routes.
+    if (Array.isArray(team) && team.length) return teams.some((t) => teams.includes(t)) ? scope : null;
+    if (team && teams.includes(team)) return scope;
     return null;
   }
   // Marker consumed by createTokenServer: resolvers flagged orgAware receive
-  // `(token, org)` so a foreign org's token resolves to null.
+  // `(token, org, team)` so a foreign org's token resolves to null.
   resolveOrgAuth.orgAware = true;
+  // Lets a caller distinguish "unknown token" (401) from "known token, wrong
+  // org/team" (403) without exposing the token map.
+  resolveOrgAuth.isKnown = (token) => Boolean(timingSafeTokenLookup(tokenMap, token));
   return resolveOrgAuth;
 }
 

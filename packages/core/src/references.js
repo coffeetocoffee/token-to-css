@@ -144,13 +144,56 @@ export function registerFunction(name, fn) {
   registeredFunctions[name.toLowerCase()] = fn;
 }
 
+/**
+ * Index of a `{` that never closes, or -1 when every `{` is matched.
+ *
+ * `tokenize` treats `{` as the start of a `{token.path}` reference and reads
+ * to the closing `}`. With no closing brace `String.indexOf` returns -1, which
+ * used to reset the cursor to 0 and spin forever, growing the token array until
+ * the heap died (an unauthenticated `POST /tokens` of `"calc({spacing.base"`).
+ * Single pass, O(n).
+ */
+function findUnclosedRef(str) {
+  let open = -1;
+  for (let k = 0; k < str.length; k++) {
+    if (str[k] === "{") open = k;
+    else if (str[k] === "}") open = -1;
+  }
+  return open;
+}
+
 function tokenize(str) {
   const tokens = [];
   const isDigit = (c) => c >= "0" && c <= "9";
   const isAlpha = (c) => /[A-Za-z#]/.test(c);
   const isIdentChar = (c) => /[A-Za-z0-9_#-]/.test(c);
+  const fail = (message) => {
+    // Tagged so `evaluate()` can let authoring errors through its
+    // not-really-an-expression catch (see below) instead of silently
+    // returning the raw text as a token value.
+    const err = new Error(message);
+    err.tokenizerError = true;
+    return err;
+  };
+  const unclosed = findUnclosedRef(str);
+  if (unclosed !== -1) {
+    throw fail(`unclosed token reference in: ${str.slice(unclosed, unclosed + 40)}`);
+  }
   let i = 0;
+  // Progress guard: every branch below must strictly advance `i`. An earlier
+  // version of the `{` branch did not — `indexOf` returning -1 reset `i` to 0 —
+  // and the loop never terminated, growing the token array until the heap died.
+  // Any future non-advancing branch now fails loudly instead of hanging.
+  // (Named `lastStart`, not `prev`: a `prev` binding would shadow the `prev`
+  // token used by the operator branch below.)
+  let lastStart = -1;
   while (i < str.length) {
+    if (i <= lastStart) {
+      throw fail(
+        `internal tokenizer error: no progress at ${lastStart} in "${str.slice(0, 40)}"`
+      );
+    }
+    lastStart = i;
     const c = str[i];
     if (c === " " || c === "\t" || c === "\n" || c === "\r") {
       i++;
@@ -163,6 +206,12 @@ function tokenize(str) {
     }
     if (c === "{") {
       const end = str.indexOf("}", i);
+      // findUnclosedRef() guarantees a closing brace exists, so `end > i`
+      // always holds. The explicit check keeps the loop safe if that
+      // precondition is ever bypassed.
+      if (end === -1) {
+        throw fail(`unclosed token reference in: ${str.slice(i, i + 40)}`);
+      }
       const name = str.slice(i + 1, end);
       tokens.push({ type: "ref", name });
       i = end + 1;
@@ -462,7 +511,12 @@ function evaluate(str, ctx) {
   let ast;
   try {
     ast = parse(tokenize(resolved));
-  } catch {
+  } catch (err) {
+    // An unclosed `{` is an authoring mistake, not "this isn't an expression".
+    // Swallowing it here would silently emit the raw text as a token value, so
+    // these tokenizer errors propagate; `validateTokens` wraps them into a
+    // TokenValidationError for the documented catch path.
+    if (err && err.tokenizerError) throw err;
     // Not actually an expression — e.g. a multi-part CSS value like
     // "0 4px 6px rgba(0,0,0,0.1)" (the "(" trips the expression heuristic,
     // but "0" parses as a complete expression with trailing tokens).

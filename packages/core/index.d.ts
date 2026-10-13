@@ -114,6 +114,12 @@ export function createChangeRequest(...args: any[]): any;
 export function approveChangeRequest(...args: any[]): any;
 export function rejectChangeRequest(...args: any[]): any;
 export function applyChangeRequest(...args: any[]): any;
+/**
+ * Advance the change-request id counter past every `cr-<n>` id in `requests`.
+ * Call after reloading a persisted CR log so newly issued ids cannot collide
+ * with reloaded ones (a collision makes `find`-by-id approve the wrong change).
+ */
+export function seedChangeRequestIds(requests?: any[]): number;
 export function getImpactGraph(tokens: any): any;
 export function getTransitiveDependents(tokens: any, path: string): string[];
 export function generateCodemod(tokens: any, opts: any): any;

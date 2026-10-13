@@ -5,6 +5,53 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [17.2.2] - 2026-10-13
+
+Security fixes from a fourth review. All three were reproduced before fixing and
+are pinned by `test/security-hardening-2.test.js`: an unauthenticated
+denial-of-service reachable from one request, an authorisation bypass that made
+every per-team credential a global write credential, and a silent wrong write to
+the token source of truth.
+
+### Security
+
+- **An unclosed `{` no longer hangs the process (remote DoS, HIGH).** The
+  expression tokenizer read a `{` to its closing `}` with `String.indexOf`; with
+  no closing brace the result is `-1`, which reset the cursor to `0` and spun
+  forever, growing the token array until the heap died. One unauthenticated
+  `POST /tokens` of `{"spacing":{"x":"calc({spacing.base"}}` killed a `serve`
+  instance (and the CLI, exit 134). An unclosed `{` in an expression now throws
+  a diagnostic (`unclosed token reference in: …`), and the tokenizer carries a
+  progress guard so any future non-advancing branch fails loudly instead of
+  hanging. `POST /tokens` resolves the folded tree *before* writing it, so a
+  malformed value is a clean `400` and the live tree is never left unresolvable.
+- **Team rooms are actually team-scoped (authorisation bypass, HIGH).** `serve`
+  resolved auth with `auth(token)`, never passing the team, so
+  `createNamespacedAuth`'s team check was skipped and **any** team-scoped
+  credential could read *and write* any other team's room — and the global
+  `/tokens` tree. The route's team is now derived from the URL and passed to the
+  resolver; `createOrgAuth` gets the same treatment on its team dimension.
+  **Behaviour change:** a team-scoped token (`teams: ["core"]`) is now denied on
+  global routes and on other teams' rooms (403). Wildcard (`["*"]`) and
+  non-team-scoped tokens are unaffected. See MIGRATION.md.
+- **Change-request ids no longer collide after a restart (wrong write, HIGH).**
+  The id counter is module state, so a fresh process restarted at `cr-1` while
+  the persisted log already held `cr-1`. Approval resolves by id with
+  first-match-wins, so approving `cr-1` applied the **old** proposal — a silent
+  wrong write to the source of truth. `seedChangeRequestIds(requests)` advances
+  the counter past every reloaded id, and a duplicated id now returns `409`
+  instead of guessing.
+
+### Tests
+
+- 490 tests pass (474 → 490). New coverage: the four reported payloads throw
+  rather than hang (plus a CLI exit-code guard against the OOM abort), the
+  tokenizer progress guard is never false-positive on balanced input, an
+  unclosed `{` over HTTP is a `400` that leaves the server and tree intact,
+  foreign-team reads/writes are `403` while own-team/wildcard/legacy access still
+  works (with `org`-aware tokens too), and a two-process restart issues a fresh
+  id whose approval applies its own proposal.
+
 ## [17.2.1] - 2026-10-13
 
 Fixes from a security review: two stored-XSS sinks in the shared review surfaces
@@ -1097,7 +1144,8 @@ connectors graduate it.)
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v17.2.1...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v17.2.2...HEAD
+[17.2.2]: https://github.com/coffeetocoffee/token-to-css/compare/v17.2.1...v17.2.2
 [17.2.1]: https://github.com/coffeetocoffee/token-to-css/compare/v17.2.0...v17.2.1
 [17.2.0]: https://github.com/coffeetocoffee/token-to-css/compare/v17.1.0...v17.2.0
 [17.1.0]: https://github.com/coffeetocoffee/token-to-css/compare/v17.0.0...v17.1.0

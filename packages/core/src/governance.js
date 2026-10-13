@@ -1,6 +1,34 @@
 let nextCrId = 1;
 
 /**
+ * Advance the id counter past every id in `requests` so ids issued after a
+ * restart cannot collide with reloaded ones.
+ *
+ * `nextCrId` is module state, so a fresh process starts at 1 while the
+ * persisted log already contains `cr-1`. Approval resolves by id
+ * (`changeRequests.find(c => c.id === crId)`, first match wins), so a collision
+ * silently applies the OLD proposal — a wrong write to the source of truth.
+ * Call this with the reloaded log right after loading it.
+ *
+ * Non-numeric / unparsable ids (e.g. `cr-<uuid>`) are ignored rather than
+ * throwing: a hand-edited log must not break boot.
+ *
+ * @param {Array<{ id?: string }>} [requests]
+ * @returns {number} the next id that will be issued
+ */
+export function seedChangeRequestIds(requests) {
+  if (!Array.isArray(requests)) return nextCrId;
+  for (const cr of requests) {
+    const m = /^cr-(\d+)$/.exec(String(cr && cr.id));
+    if (m) {
+      const n = Number(m[1]) + 1;
+      if (n > nextCrId) nextCrId = n;
+    }
+  }
+  return nextCrId;
+}
+
+/**
  * Keys that can reach the prototype chain. `cr.proposed` is attacker-supplied
  * and is deep-merged into the source tree by `applyChangeRequest`, so it needs
  * the same guard as `merge.js` — an unguarded assign through `__proto__` would

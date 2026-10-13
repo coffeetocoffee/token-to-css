@@ -145,7 +145,10 @@ export function lintTokens(tokens, options = {}) {
   try {
     resolvedBase = resolveReferences(baseTree, { reduce: true });
   } catch (err) {
-    push("unknown-reference", String(err.message), null, "error");
+    // A malformed expression (e.g. an unclosed `{`) is not an unknown
+    // reference — report it under its own rule so the diagnostic is accurate.
+    const rule = err && err.tokenizerError ? "invalid-expression" : "unknown-reference";
+    push(rule, String(err.message), null, "error");
   }
   // Also try resolving each mode merge so cross-mode refs surface
   if (modeDefs) {

@@ -286,6 +286,41 @@ A security patch. **Nothing breaks and nothing is removed.** What changed:
 - **A long unbroken token value no longer stalls the server.** The expression
   heuristic that rescanned at every position is now linear.
 
+## From 17.2.x to 17.2.2
+
+Security fixes. **Nothing is removed**, but there is one behaviour change you
+should check against your setup, plus two fail-loudly changes.
+
+- **`serve --auth` now really enforces team scoping (check this one).** `serve`
+  was calling the auth resolver without the team, so the team check in
+  `createNamespacedAuth` / `createOrgAuth` never ran. A token configured with
+  `teams: ["core"]` could read **and write** any other team's room and the whole
+  global tree — the team dimension was documented but unenforced. The route's
+  team is now passed to the resolver, so:
+  - `GET`/`POST /teams/<team>/tokens` and `/teams/<team>/events` are scoped to
+    that team. A foreign team returns **403**.
+  - A **team-scoped token is now denied (403) on global routes** (`/tokens`,
+    `/editor`, `/change-requests`, …). Previously it could act globally. If you
+    have a token with an explicit `teams` list that you use against `/tokens`,
+    change that entry to `teams: ["*"]` (a wildcard token is global), or drop the
+    `teams` field entirely (no list = not team-scoped). Tokens that already have
+    `["*"]` or no `teams` field are unaffected.
+  - An unknown token is still **401**; a known token aimed at the wrong
+    room/org is now **403** (it was 401 for teams before).
+  - Plain `{ token: scope }` maps (no team concept) are unaffected.
+- **An unclosed `{` in an expression is now an error.** Previously it made the
+  tokenizer loop until the heap died (an unauthenticated `POST /tokens` could
+  kill the server). It now throws `unclosed token reference in: …`; over HTTP a
+  malformed value is a **400** and the tree is left untouched. If any of your
+  token values contain a literal `{` with no matching `}` inside a
+  `looksLikeExpr` value (something containing `(`), they now fail the build — fix
+  the typo, or escape the brace.
+- **Change-request ids keep increasing across a restart.** Ids were reissued
+  from `cr-1` after every restart, colliding with the persisted log and making
+  `POST /change-requests/cr-1/approve` apply the wrong proposal. Ids now
+  continue past the reloaded log, and a genuinely duplicated id returns **409**
+  instead of applying the first match.
+
 ## Stability guarantees (from 1.0.0)
 
 - **CLI flags** will not be removed or renamed except in a major version, and

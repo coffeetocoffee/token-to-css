@@ -490,6 +490,13 @@ export function createChangeRequest(current: Tokens, proposed: Tokens, options?:
 export function approveChangeRequest(cr: ChangeRequest, options?: { approver?: string }): ChangeRequest;
 export function rejectChangeRequest(cr: ChangeRequest, reason?: string, options?: { rejectedBy?: string }): ChangeRequest;
 export function applyChangeRequest(source: Tokens, cr: ChangeRequest): { tree: Tokens; cr: ChangeRequest };
+/**
+ * Advance the change-request id counter past every `cr-<n>` id in `requests`.
+ * `serve` calls this after reloading a persisted CR log, so ids issued by a
+ * fresh process cannot collide with reloaded ones — a duplicate id would make
+ * approving `cr-1` apply the OLD proposal (first match wins).
+ */
+export function seedChangeRequestIds(requests?: ChangeRequest[]): number;
 
 export interface ImpactGraph {
   [tokenPath: string]: string[];

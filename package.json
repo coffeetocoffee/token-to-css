@@ -1,6 +1,6 @@
 {
   "name": "token-to-css",
-  "version": "17.2.1",
+  "version": "17.2.2",
   "description": "Convert design token JSON files into framework-agnostic CSS (custom properties, SCSS, or barefoot-css).",
   "type": "module",
   "repository": {
@@ -55,8 +55,8 @@
     "packages/stylelint-plugin"
   ],
   "dependencies": {
-    "@token-to-css/core": "17.2.1",
-    "@token-to-css/connectors": "17.2.1"
+    "@token-to-css/core": "17.2.2",
+    "@token-to-css/connectors": "17.2.2"
   },
   "scripts": {
     "example": "node src/cli.js examples/tokens.json -o examples/output.css",
