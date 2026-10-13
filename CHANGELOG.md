@@ -5,13 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [17.2.2] - 2026-10-13
+## [17.3.0] - 2026-10-13
 
 Security fixes from a fourth review. All three were reproduced before fixing and
 are pinned by `test/security-hardening-2.test.js`: an unauthenticated
 denial-of-service reachable from one request, an authorisation bypass that made
 every per-team credential a global write credential, and a silent wrong write to
 the token source of truth.
+
+This is a **minor** rather than a patch because the team-scoping fix changes
+authorization behaviour for existing `--auth` configurations (see *Changed*).
 
 ### Security
 
@@ -31,9 +34,6 @@ the token source of truth.
   credential could read *and write* any other team's room — and the global
   `/tokens` tree. The route's team is now derived from the URL and passed to the
   resolver; `createOrgAuth` gets the same treatment on its team dimension.
-  **Behaviour change:** a team-scoped token (`teams: ["core"]`) is now denied on
-  global routes and on other teams' rooms (403). Wildcard (`["*"]`) and
-  non-team-scoped tokens are unaffected. See MIGRATION.md.
 - **Change-request ids no longer collide after a restart (wrong write, HIGH).**
   The id counter is module state, so a fresh process restarted at `cr-1` while
   the persisted log already held `cr-1`. Approval resolves by id with
@@ -41,6 +41,18 @@ the token source of truth.
   wrong write to the source of truth. `seedChangeRequestIds(requests)` advances
   the counter past every reloaded id, and a duplicated id now returns `409`
   instead of guessing.
+
+### Changed
+
+- **A team-scoped token is denied on global routes (breaking for some setups).**
+  With `serve --auth`, a token whose entry has an explicit `teams` list no longer
+  reaches `/tokens`, `/editor`, `/change-requests`, etc. — only
+  `/teams/<its-team>/...`. Previously the team was never passed to the resolver,
+  so such a token acted as a **global write credential**, which is the bug being
+  fixed. To keep global access for a token, use `"teams": ["*"]` or omit the
+  `teams` field entirely (no list means "not team-scoped"). A token aimed at the
+  wrong room now returns `403` (it was `401` for teams). Plain
+  `{ token: scope }` maps are unaffected. See MIGRATION.md.
 
 ### Tests
 
@@ -1144,8 +1156,8 @@ connectors graduate it.)
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v17.2.2...HEAD
-[17.2.2]: https://github.com/coffeetocoffee/token-to-css/compare/v17.2.1...v17.2.2
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v17.3.0...HEAD
+[17.3.0]: https://github.com/coffeetocoffee/token-to-css/compare/v17.2.1...v17.3.0
 [17.2.1]: https://github.com/coffeetocoffee/token-to-css/compare/v17.2.0...v17.2.1
 [17.2.0]: https://github.com/coffeetocoffee/token-to-css/compare/v17.1.0...v17.2.0
 [17.1.0]: https://github.com/coffeetocoffee/token-to-css/compare/v17.0.0...v17.1.0

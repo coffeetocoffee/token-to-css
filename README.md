@@ -9,7 +9,7 @@ Zero deps · Node 20+ · CSS, themes, docs & a live mesh — from one JSON file.
 [![npm version](https://img.shields.io/npm/v/token-to-css)](https://www.npmjs.com/package/token-to-css)
 [![GitHub Release](https://img.shields.io/github/v/release/coffeetocoffee/token-to-css)](https://github.com/coffeetocoffee/token-to-css/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/coffeetocoffee/token-to-css/test.yml)](https://github.com/coffeetocoffee/token-to-css/actions)
-[![v17.2.2](https://img.shields.io/badge/phase-17.2.2%20%E2%80%94%20security%20fixes-7c3aed)](https://github.com/coffeetocoffee/token-to-css)
+[![v17.3.0](https://img.shields.io/badge/phase-17.3.0%20%E2%80%94%20security%20fixes-7c3aed)](https://github.com/coffeetocoffee/token-to-css)
 [![MIT license](https://img.shields.io/npm/l/token-to-css)](LICENSE)
 
 </div>

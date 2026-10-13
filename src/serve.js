@@ -627,7 +627,7 @@ export function createTokenServer(options = {}) {
     // v11.0: with `options.org` set, org-aware resolvers (`createOrgAuth`)
     // receive `(token, org)` so org rooms are enforced — a foreign org's
     // token resolves to null (401).
-    // v17.2.2: the team room is derived from the route and passed to the
+    // v17.3.0: the team room is derived from the route and passed to the
     // resolver, so `/teams/<team>/...` is actually team-scoped. Previously the
     // team was never passed, which made every team-scoped credential an
     // effective global write credential (an authorisation bypass).
@@ -654,7 +654,7 @@ export function createTokenServer(options = {}) {
           : timingSafeTokenLookup(auth, token) || null
         : null;
 
-      // v11.0 org trust / v17.2.2 team trust: a token that exists but is not
+      // v11.0 org trust / v17.3.0 team trust: a token that exists but is not
       // valid for THIS room is forbidden (403), not unauthorized (401).
       // `isKnown` (set by createNamespacedAuth / createOrgAuth) distinguishes
       // the two; without it we fall back to the old org-only check.

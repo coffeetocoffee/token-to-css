@@ -286,7 +286,7 @@ A security patch. **Nothing breaks and nothing is removed.** What changed:
 - **A long unbroken token value no longer stalls the server.** The expression
   heuristic that rescanned at every position is now linear.
 
-## From 17.2.x to 17.2.2
+## From 17.2.x to 17.3.0
 
 Security fixes. **Nothing is removed**, but there is one behaviour change you
 should check against your setup, plus two fail-loudly changes.

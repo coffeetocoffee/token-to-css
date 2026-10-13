@@ -317,7 +317,7 @@ describe("v11: org auth", () => {
   test("org A's write token is null on org B's server", () => {
     assert.equal(auth("acme-write", "acme"), "write");
     assert.equal(auth("acme-write", "globex"), null);
-    // v17.2.2: `globex-view` is team-scoped to ["web"], so it resolves only in
+    // v17.3.0: `globex-view` is team-scoped to ["web"], so it resolves only in
     // that room. It used to resolve on the global room too — the team dimension
     // of org rooms was documented but never enforced.
     assert.equal(auth("globex-view", "globex", "web"), "read");

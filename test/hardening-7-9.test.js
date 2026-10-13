@@ -139,7 +139,7 @@ test("team scoping is still enforced after the lookup change", () => {
   });
   assert.equal(resolve("core-tok", "core"), "write");
   assert.equal(resolve("core-tok", "web"), null);
-  // v17.2.2: a team-scoped token no longer resolves on the global room ("*"),
+  // v17.3.0: a team-scoped token no longer resolves on the global room ("*"),
   // which is the default — it must not be an effective global credential.
   assert.equal(resolve("core-tok"), null);
   assert.equal(resolve("core-tok", "*"), null);
