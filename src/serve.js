@@ -33,6 +33,36 @@ function readJSON(p) {
   return parseJSONText(readFileSync(p, "utf8"));
 }
 
+/** Largest request body accepted by any POST route (1 MB). */
+export const MAX_BODY_BYTES = 1024 * 1024;
+
+/**
+ * Collect a request body with a hard size cap. Over the cap the client gets a
+ * 413 and the connection is closed; `onBody` is never called. Replaces the old
+ * unbounded `body += chunk` accumulation, which let one request grow memory
+ * without limit.
+ */
+export function readBody(req, res, onBody) {
+  const chunks = [];
+  let size = 0;
+  let tooLarge = false;
+  req.on("data", (c) => {
+    if (tooLarge) return;
+    size += c.length;
+    if (size > MAX_BODY_BYTES) {
+      tooLarge = true;
+      chunks.length = 0;
+      res.writeHead(413, { "content-type": "application/json", connection: "close" });
+      res.end(JSON.stringify({ ok: false, error: `request body exceeds ${MAX_BODY_BYTES} bytes` }));
+      return;
+    }
+    chunks.push(c);
+  });
+  req.on("end", () => {
+    if (!tooLarge) onBody(Buffer.concat(chunks).toString("utf8"));
+  });
+}
+
 /** Resolve a token tree (optionally applying a mode/brand override). */
 export function resolveTree(raw, { mode, brand } = {}) {
   const tree = normalizeW3C(raw);
@@ -67,16 +97,31 @@ function getByPath(node, path) {
   return cur;
 }
 
+/** HTML-escape text for element content and double-quoted attributes. */
+function escText(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function buildPlaygroundHTML(tree, options = {}) {
   const modes = Object.keys(tree.modes || tree.themes || {});
   const brands = Object.keys(tree.brands || tree.brand || {});
   const modeOpts = modes
-    .map((m) => `<option value="${m}">${m}</option>`)
+    .map((m) => `<option value="${escText(m)}">${escText(m)}</option>`)
     .join("");
   const brandOpts = brands
-    .map((b) => `<option value="${b}">${b}</option>`)
+    .map((b) => `<option value="${escText(b)}">${escText(b)}</option>`)
     .join("");
-  const css = convert(tree, { format: "css" });
+  // The CSS is emitted inside a <style> element, which is raw text: a value
+  // containing "<" (e.g. "</style><script>") would close the element and run.
+  // "<" is never valid in CSS outside a string, so emit it as the CSS hex escape
+  // \3c , which the browser renders as the same character in content but can
+  // no longer open a tag.
+  const css = convert(tree, { format: "css" }).replace(/</g, "\\3c ");
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -103,10 +148,23 @@ code{background:#f4f4f5;padding:.1rem .4rem;border-radius:.25rem}
 <script>
 const client = TokenClient({ streamUrl: "/events" });
 function render(tree){
-  const rows = Object.entries(tree).filter(([k,v])=>typeof v==="string").map(([k,v])=>
-    '<div class="token"><span class="sw" style="background:var(--'+k.replace(/\\./g,"-")+')"></span><code>'+k+'</code><code>'+v+'</code></div>'
-  ).join("");
-  document.getElementById("tokens").innerHTML = rows;
+  // Built with DOM nodes + textContent: token keys and values are untrusted and
+  // must never be parsed as HTML.
+  const host = document.getElementById("tokens");
+  host.textContent = "";
+  Object.entries(tree).filter(([k,v])=>typeof v==="string").forEach(([k,v])=>{
+    const row = document.createElement("div");
+    row.className = "token";
+    const sw = document.createElement("span");
+    sw.className = "sw";
+    sw.style.background = "var(--" + k.replace(/\\./g,"-") + ")";
+    const keyEl = document.createElement("code");
+    keyEl.textContent = k;
+    const valEl = document.createElement("code");
+    valEl.textContent = v;
+    row.append(sw, keyEl, valEl);
+    host.append(row);
+  });
 }
 client.on(render);
 fetch("/tokens").then(r=>r.json()).then(render);
@@ -661,9 +719,7 @@ export function createTokenServer(options = {}) {
 
     if (req.method === "POST" && path === "/tokens") {
       const channel = q.get("channel") || "stable";
-      let body = "";
-      req.on("data", (c) => (body += c));
-      req.on("end", () => {
+      readBody(req, res, (body) => {
         try {
           const incoming = JSON.parse(body);
           const t0 = performance.now();
@@ -823,9 +879,7 @@ export function createTokenServer(options = {}) {
     }
 
     if (req.method === "POST" && path === "/editor/preview") {
-      let body = "";
-      req.on("data", (c) => (body += c));
-      req.on("end", () => {
+      readBody(req, res, (body) => {
         try {
           const edit = body ? JSON.parse(body) : {};
           // v15: an array is a batch — every edit reviewed as one unit and
@@ -909,9 +963,7 @@ export function createTokenServer(options = {}) {
         res.end(JSON.stringify({ ok: false, error: "change request not found" }));
         return;
       }
-      let body = "";
-      req.on("data", (c) => (body += c));
-      req.on("end", () => {
+      readBody(req, res, (body) => {
         try {
           const { reason } = body ? JSON.parse(body) : {};
           rejectChangeRequest(cr, reason);
@@ -934,9 +986,7 @@ export function createTokenServer(options = {}) {
     // authoritative. Idempotent: a re-broadcast of an identical tree is a
     // no-op and does not open a CR.
     if (req.method === "POST" && path === "/relay") {
-      let body = "";
-      req.on("data", (c) => (body += c));
-      req.on("end", () => {
+      readBody(req, res, (body) => {
         try {
           const { origin, tree } = JSON.parse(body);
           if (!tree || typeof tree !== "object") {
@@ -1019,9 +1069,7 @@ export function createTokenServer(options = {}) {
       }
 
       if (req.method === "POST" && sub === "tokens") {
-        let body = "";
-        req.on("data", (c) => (body += c));
-        req.on("end", () => {
+        readBody(req, res, (body) => {
           try {
             const incoming = JSON.parse(body);
             if (!sourceTree.teams) sourceTree.teams = {};
@@ -1100,9 +1148,7 @@ export function createTokenServer(options = {}) {
         return;
       }
       // push
-      let body = "";
-      req.on("data", (c) => (body += c));
-      req.on("end", () => {
+      readBody(req, res, (body) => {
         let tree = snapshotTree();
         if (body) {
           try {

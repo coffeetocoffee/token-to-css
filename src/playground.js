@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join as joinPath } from "node:path";
-import { createTokenServer } from "./serve.js";
+import { createTokenServer, readBody } from "./serve.js";
 
 function escHtml(s) {
   return String(s)
@@ -167,9 +167,7 @@ export async function createPlaygroundServer(options = {}) {
     }
 
     if (req.method === "POST" && path === "/session") {
-      let body = "";
-      req.on("data", (c) => (body += c));
-      req.on("end", () => {
+      readBody(req, res, (body) => {
         try {
           const payload = body ? JSON.parse(body) : {};
           bootSession(payload).then(
@@ -202,9 +200,7 @@ export async function createPlaygroundServer(options = {}) {
         res.end(JSON.stringify({ ok: false, error: "no remote session" }));
         return;
       }
-      let body = "";
-      req.on("data", (c) => (body += c));
-      req.on("end", () => {
+      readBody(req, res, (body) => {
         try {
           const proposal = JSON.parse(body);
           proposeToRemote(session, proposal).then(

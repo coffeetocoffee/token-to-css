@@ -594,37 +594,45 @@ document.addEventListener("click", function(e){
 function showMsg(panel, text){ panel.hidden = false; panel.innerHTML = '<span class="err">' + text + "</span>"; }
 function showPanel(panel, p, v, renameTo){
   panel.hidden = false;
+  // Every value below originates in token data or a remote peer, so it is
+  // escaped before being placed in innerHTML. Only the literal <span> markup
+  // written here is trusted.
+  var esc = function(s){
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  };
   var out = "";
   if (p.errors && p.errors.length) {
     out += '<span class="err">rejected:</span>\\n';
     p.errors.forEach(function(e){
-      out += "- " + (e.code === "unknown-ref" ? "unknown reference {" + e.ref + "}" : e.message || e.code) + "\\n";
+      out += "- " + esc(e.code === "unknown-ref" ? "unknown reference {" + e.ref + "}" : e.message || e.code) + "\\n";
     });
-    if (p.errors[0] && p.errors[0].valid) out += "valid tokens: " + p.errors[0].valid.join(", ") + "\\n";
+    if (p.errors[0] && p.errors[0].valid) out += "valid tokens: " + esc(p.errors[0].valid.join(", ")) + "\\n";
   }
   if (p.changed) {
     out += p.changed.type === "rename"
-      ? "rename " + p.changed.from + " -> " + p.changed.to + "\\n"
-      : p.changed.path + " [" + p.changed.scope + "]" + (p.changed.override ? " (new override)" : "") + (p.changed.creates ? " (new token)" : "") + ": " + p.changed.from + " -> " + p.changed.to + "\\n";
+      ? "rename " + esc(p.changed.from) + " -> " + esc(p.changed.to) + "\\n"
+      : esc(p.changed.path) + " [" + esc(p.changed.scope) + "]" + (p.changed.override ? " (new override)" : "") + (p.changed.creates ? " (new token)" : "") + ": " + esc(p.changed.from) + " -> " + esc(p.changed.to) + "\\n";
   }
   var d = p.diff || {};
-  Object.keys(d.added || {}).forEach(function(k){ out += "+ " + k + ": " + d.added[k] + "\\n"; });
-  Object.keys(d.removed || {}).forEach(function(k){ out += "- " + k + " (was " + d.removed[k] + ")\\n"; });
-  Object.keys(d.changed || {}).forEach(function(k){ out += "~ " + k + ": " + d.changed[k].from + " -> " + d.changed[k].to + "\\n"; });
+  Object.keys(d.added || {}).forEach(function(k){ out += "+ " + esc(k) + ": " + esc(d.added[k]) + "\\n"; });
+  Object.keys(d.removed || {}).forEach(function(k){ out += "- " + esc(k) + " (was " + esc(d.removed[k]) + ")\\n"; });
+  Object.keys(d.changed || {}).forEach(function(k){ out += "~ " + esc(k) + ": " + esc(d.changed[k].from) + " -> " + esc(d.changed[k].to) + "\\n"; });
   if (!Object.keys(d.added || {}).length && !Object.keys(d.removed || {}).length && !Object.keys(d.changed || {}).length) out += "no resolved changes\\n";
   var vr = (p.verdict || {}).bump || "none";
-  out += '<span class="badge ' + vr + '">release: ' + vr + "</span>";
+  out += '<span class="badge ' + esc(vr) + '">release: ' + esc(vr) + "</span>";
   if (p.blocked) out += ' <span class="err">major — removals block the commit unless explicitly confirmed (re-review with confirmed)</span>';
   if (p.impact) {
     var deps = (p.impact.direct || []).concat(p.impact.transitive || []);
     var uniq = deps.filter(function(x, i){ return deps.indexOf(x) === i; });
-    out += "\\nimpact: " + (uniq.length ? uniq.join(", ") : "no dependents");
-    if (p.impact.deprecated) out += "\\ndeprecated → default edit to {" + p.impact.replacedBy + "} (prefilled)";
+    out += "\\nimpact: " + (uniq.length ? esc(uniq.join(", ")) : "no dependents");
+    if (p.impact.deprecated) out += "\\ndeprecated → default edit to {" + esc(p.impact.replacedBy) + "} (prefilled)";
   }
   if (p.codemod) {
     out += "\\ncodemod (token-file change is only half the job — hand off to consumers):\\n";
-    out += "  token-to-css migrate --from " + dotted(v) + " --to " + renameTo + " --codemod ./app\\n";
-    out += "  " + JSON.stringify(p.codemod) + "\\n";
+    out += "  token-to-css migrate --from " + esc(dotted(v)) + " --to " + esc(renameTo) + " --codemod ./app\\n";
+    out += "  " + esc(JSON.stringify(p.codemod)) + "\\n";
     out += "  (renames cannot merge over the wire — apply via the codemod)";
   }
   panel.innerHTML = out;

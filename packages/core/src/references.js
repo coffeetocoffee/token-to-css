@@ -221,11 +221,13 @@ function tokenize(str) {
 }
 
 function looksLikeExpr(s) {
+  // The former fourth alternative, /[A-Za-z_][\w-]*\(/, was redundant (any match
+  // contains "(", already covered by the /\(/ test) and backtracked quadratically
+  // on long unbroken strings. Keep the checks linear.
   return (
     /\{[^}]+\}/.test(s) ||
-    /\(/.test(s) ||
-    /\s[-+*/]\s/.test(s) ||
-    /[A-Za-z_][\w-]*\(/.test(s)
+    s.includes("(") ||
+    /\s[-+*/]\s/.test(s)
   );
 }
 
