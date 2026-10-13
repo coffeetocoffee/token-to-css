@@ -1082,8 +1082,12 @@ export function createTokenServer(options = {}) {
         return;
       }
       if (op === "pull") {
-        connector
-          .pull()
+        // Connectors are third-party code (the v8 SDK is public) — a connector
+        // whose `pull()` throws SYNCHRONOUSLY must not escape the handler and
+        // kill the server. Wrapping in Promise.resolve().then() funnels both
+        // the sync throw and an async rejection into the same `.catch`.
+        Promise.resolve()
+          .then(() => connector.pull())
           .then((tree) => {
             setTokens(tree);
             res.writeHead(200, { "content-type": "application/json" });
@@ -1109,8 +1113,8 @@ export function createTokenServer(options = {}) {
             return;
           }
         }
-        connector
-          .push(tree)
+        Promise.resolve()
+          .then(() => connector.push(tree))
           .then((result) => {
             res.writeHead(200, { "content-type": "application/json" });
             res.end(JSON.stringify({ ok: true, connectors: [name], result }));

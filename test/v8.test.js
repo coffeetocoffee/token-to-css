@@ -141,6 +141,46 @@ test("serve returns 404 for an unknown connector", async () => {
   }
 });
 
+test("a connector that throws SYNCHRONOUSLY is caught (server stays up)", async () => {
+  // Connectors are third-party code; a sync throw must funnel through the same
+  // 502 path as an async rejection instead of escaping the request handler and
+  // killing the whole server (no uncaughtException handler is installed).
+  const name = "sync-throw-" + Math.random().toString(36).slice(2, 8);
+  registerConnector({
+    name,
+    pull() {
+      throw new Error("sync pull boom");
+    },
+    push() {
+      throw new Error("sync push boom");
+    },
+  });
+
+  const server = createTokenServer({ tokens, watch: false });
+  await new Promise((r) => server.listen(0, r));
+  const port = server.address().port;
+  const base = "http://localhost:" + port;
+  try {
+    const pullRes = await fetch(base + "/connectors/" + name + "/pull", { method: "POST" });
+    assert.equal(pullRes.status, 502);
+    assert.equal((await pullRes.json()).error, "sync pull boom");
+
+    const pushRes = await fetch(base + "/connectors/" + name + "/push", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+    });
+    assert.equal(pushRes.status, 502);
+    assert.equal((await pushRes.json()).error, "sync push boom");
+
+    // The mesh is still serving after both throws.
+    const alive = await fetch(base + "/tokens");
+    assert.equal(alive.status, 200);
+  } finally {
+    server.closeAll();
+    server.close();
+  }
+});
+
 test("CLI emits connector formats with -f", async () => {
   const { execFileSync } = await import("node:child_process");
   const { writeFileSync, mkdtempSync, rmSync, readFileSync } = await import("node:fs");

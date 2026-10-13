@@ -27,9 +27,15 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 // package entry (declaration) -> module to import for the runtime truth
-const PAIRS = [
+export const PAIRS = [
   { dts: "packages/core/index.d.ts", module: "@token-to-css/core", label: "core" },
   { dts: "packages/connectors/index.d.ts", module: "@token-to-css/connectors", label: "connectors" },
+  // The meta package's own hand-maintained declarations — this is the file
+  // `package.json` "types" points at, so it is the one a consumer of
+  // `token-to-css` actually sees. It was missing from PAIRS and had drifted.
+  // Imported by absolute file URL so it resolves to the root entry, not
+  // relative to this script's own directory.
+  { dts: "src/index.d.ts", module: pathToFileURL(join(ROOT, "src/index.js")).href, label: "meta" },
 ];
 
 /** Names of runtime VALUE exports declared by a .d.ts. Types are excluded. */

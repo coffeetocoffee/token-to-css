@@ -860,3 +860,116 @@ export interface DiagnosticsSource {
   kind?: "tokens" | "consumer";
 }
 
+// --- core re-exports the meta package also surfaces -----------------------
+//
+// These are re-exported from `@token-to-css/core` via `src/index.js` (see the
+// `export * from "@token-to-css/core"` line) but were never restated here, so
+// `import { expandTokens } from "token-to-css"` failed to type-check while it
+// worked at run time. `scripts/check-declarations.js` now guards this file.
+
+// v6: JSON loading + deep merge (see @token-to-css/core for semantics).
+export function parseJSONText(text: string): any;
+export function deepMerge<T extends Record<string, any>>(
+  target: T,
+  source: Record<string, any>
+): T;
+export function mergeTokens(
+  main: Record<string, any>,
+  imports: Record<string, any>[]
+): Record<string, any>;
+
+// v6+: token generator (`$expand`); README "API" section.
+export interface GeneratedToken {
+  path: string;
+  kind: "ramp" | "scale" | "fluid" | "cross";
+}
+export interface ExpandResult {
+  tokens: Tokens;
+  generated: GeneratedToken[];
+}
+export function expandTokens(input: Tokens): ExpandResult;
+
+/** Timing-safe own-key lookup (never resolves `__proto__`/`constructor`). */
+export function timingSafeTokenLookup<T = any>(
+  tokenMap: Record<string, T>,
+  candidate: unknown
+): T | null;
+
+// v6: colour helpers (the plugin-authoring surface).
+export function parseColor(str: string): any;
+export function formatColor(c: any): string;
+export function mix(c1: any, c2: any, weight?: number): any;
+export function withAlpha(c: any, a: number): any;
+export function lighten(c: any, amount: number): any;
+export function darken(c: any, amount: number): any;
+export function oklabToRgb(...args: any[]): any;
+export function oklchToRgb(...args: any[]): any;
+export function labToRgb(...args: any[]): any;
+export function rgbToOklch(c: any): any;
+export function oklchDistance(a: any, b: any): number;
+
+// v5/v13: barefoot + preset value maps.
+export const BAREFOOT_MAP: Record<string, string>;
+export const TAILWIND_MAP: Record<string, string>;
+export const OPENPROPS_MAP: Record<string, string>;
+export function mapToBarefoot(flat: Record<string, string>, map?: Record<string, string>): Record<string, string>;
+
+// --- v9/v13: adoption engine + metrics (root-package-only exports) ---
+
+export interface AdoptionScore {
+  score: number;
+  adopted: number;
+  hardcoded: number;
+  total?: number;
+}
+
+export interface OrgAdoption {
+  teams: Record<string, AdoptionScore>;
+  org: AdoptionScore;
+}
+
+export interface FederatedAdoption {
+  orgs: Record<string, { teams: Record<string, AdoptionScore>; org: AdoptionScore }>;
+  combined: AdoptionScore;
+}
+
+export function computeOrgAdoption(
+  manifest: unknown,
+  resolveOrgTree: (...args: any[]) => any,
+  sourcesByTeam: Record<string, unknown>
+): OrgAdoption;
+
+export function computeFederatedAdoption(
+  orgTeamTrees: Record<string, unknown>,
+  sourcesByOrg: Record<string, unknown>
+): FederatedAdoption;
+
+/** v13: render an adoption dashboard (per-team/per-org bars + optional trend). */
+export function buildAdoptionReport(
+  adoption: OrgAdoption | FederatedAdoption,
+  options?: { title?: string; history?: Array<{ date: string; score: number }> }
+): string;
+
+export interface MetricSeries {
+  type: "counter" | "gauge" | "histogram";
+  name: string;
+  help: string;
+  labelNames: string[];
+  values: Map<string, any>;
+  buckets: number[] | null;
+}
+
+export interface Metrics {
+  series: MetricSeries[];
+  incrementCounter(name: string, help: string, labels?: Record<string, string>, by?: number): void;
+  seedCounter(name: string, help: string, labels?: Record<string, string>, value?: number): void;
+  setGauge(name: string, help: string, labels?: Record<string, string>, value?: number): void;
+  observeHistogram(name: string, help: string, labels?: Record<string, string>, value?: number, buckets?: number[]): void;
+  get(name: string, labels?: Record<string, string>): number | undefined;
+  /** Render every series in Prometheus text exposition format. */
+  scrape(): string;
+}
+
+/** v13: zero-dependency Prometheus metric registry (used by `serve` `/metrics`). */
+export function createMetrics(): Metrics;
+

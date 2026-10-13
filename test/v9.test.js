@@ -272,16 +272,28 @@ test("CLI: adopt --report prints the adoption score", async () => {
 });
 
 test("package split: @token-to-css/stylelint and /eslint lint via public surface", async () => {
-  const { symlinkSync, mkdirSync, rmSync, existsSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
+  const { symlinkSync, mkdirSync, rmSync, existsSync, realpathSync } = await import("node:fs");
   const { join, dirname } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
   const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
   const nm = join(repoRoot, "node_modules");
   const link = join(nm, "token-to-css");
   mkdirSync(nm, { recursive: true });
-  if (!existsSync(link)) symlinkSync(repoRoot, link, "junction");
+  // npm installs the plugins' `file:../..` devDependency as a symlink here, so
+  // normally `link` already exists and points at the local repo. Only create it
+  // when it is absent, and NEVER delete an install-created copy — an
+  // unconditional `rmSync` removes the real dependency and breaks every later
+  // `import("token-to-css")` until the next install.
+  const created = !existsSync(link);
+  if (created) symlinkSync(repoRoot, link, "junction");
   try {
+    // The point of this test is the LOCAL public surface; fail loudly if the
+    // plugins would resolve a stale published copy instead.
+    const resolved = realpathSync(link).toLowerCase();
+    assert.ok(
+      resolved.startsWith(realpathSync(repoRoot).toLowerCase()),
+      `token-to-css must resolve to the local repo, got ${realpathSync(link)}`
+    );
     const stylelint = await import("../packages/stylelint-plugin/index.js");
     const eslint = await import("../packages/eslint-plugin/index.js");
     const slRule = stylelint.createRule(tokens);
@@ -292,6 +304,6 @@ test("package split: @token-to-css/stylelint and /eslint lint via public surface
     const esFindings = esRule.lintText('#fff { color: #3b82f6 }', "a.css");
     assert.ok(esFindings.some((f) => f.variable === "--color-primary"));
   } finally {
-    rmSync(link, { recursive: true, force: true });
+    if (created) rmSync(link, { recursive: true, force: true });
   }
 });

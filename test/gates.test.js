@@ -9,6 +9,7 @@ import {
   declaredValueNames,
   declaredTypeNames,
   compare,
+  PAIRS,
 } from "../scripts/check-declarations.js";
 
 function tmp() {
@@ -196,4 +197,13 @@ test("compare ignores names declared only as types", () => {
   // A type-only re-export has no runtime value and must not be flagged.
   const { undeclared } = compare(["a"], "export function a(): void;\nexport type Tok = any;");
   assert.deepEqual(undeclared, []);
+});
+
+test("declaration gate covers the meta package's published .d.ts", () => {
+  // package.json "types" points at src/index.d.ts — the file a consumer of
+  // `token-to-css` actually sees. It had drifted (22 undeclared re-exports)
+  // while the gate reported OK because it only checked core + connectors.
+  const dts = PAIRS.map((p) => p.dts);
+  assert.ok(dts.includes("src/index.d.ts"), "meta .d.ts must be in the gate");
+  assert.equal(new Set(dts).size, dts.length, "no duplicate pairs");
 });

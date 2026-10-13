@@ -5,6 +5,44 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [17.2.0] - 2026-10-13
+
+Fixes from a third static review: the declaration-drift gate now guards the
+file that actually ships to consumers, a misbehaving third-party connector can
+no longer take down the Token Server, and the plugin integration test no longer
+deletes an installed dependency.
+
+### Fixed
+
+- **The published meta types are complete.** `package.json` `types` points at
+  `src/index.d.ts`, but the v17.0 declaration gate only checked
+  `packages/core` and `packages/connectors` — so the meta `.d.ts` had drifted by
+  **22** undeclared runtime exports (`expandTokens`, `deepMerge`, `mergeTokens`,
+  `parseJSONText`, `timingSafeTokenLookup`, the colour helpers `parseColor`/
+  `formatColor`/`mix`/`withAlpha`/`lighten`/`darken`/`oklabToRgb`/`oklchToRgb`/
+  `labToRgb`/`rgbToOklch`/`oklchDistance`, the preset maps `BAREFOOT_MAP`/
+  `TAILWIND_MAP`/`OPENPROPS_MAP`/`mapToBarefoot`, and the root-only
+  `buildAdoptionReport`/`createMetrics`). Importing them from `token-to-css`
+  type-checked nowhere but worked at run time; they are now declared.
+- **A synchronously-throwing connector no longer kills the server.** `serve`
+  called `connector.pull()`/`push()` outside a `try`, so a connector whose
+  method throws before returning a promise escaped the request handler and
+  crashed the process (the async-rejection path already returned 502). Both
+  calls are now wrapped in `Promise.resolve().then(...)`, funnelling the sync
+  throw into the same 502 `.catch`.
+- **The plugin integration test no longer deletes an installed dependency.**
+  `test/v9.test.js` created a `node_modules/token-to-css` symlink and removed it
+  unconditionally in `finally` — which, after the local `file:../..` devDependency
+  landed, deleted the real installed copy and broke every later
+  `import("token-to-css")` until reinstall. It now only removes the link when it
+  created it, and asserts the link resolves to the local repo.
+
+### Tests
+
+- 466 tests pass (464 → 466). New coverage: the declaration gate must include
+  `src/index.d.ts`, and a sync-throwing connector returns 502 on both `/pull`
+  and `/push` while the server keeps serving.
+
 ## [17.1.0] - 2026-10-12
 
 Fixes from a second static review: unknown output formats no longer succeed
@@ -1018,7 +1056,8 @@ connectors graduate it.)
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v17.1.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v17.2.0...HEAD
+[17.2.0]: https://github.com/coffeetocoffee/token-to-css/compare/v17.1.0...v17.2.0
 [17.1.0]: https://github.com/coffeetocoffee/token-to-css/compare/v17.0.0...v17.1.0
 [17.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v15.0.0...v17.0.0
 [15.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v14.0.0...v15.0.0

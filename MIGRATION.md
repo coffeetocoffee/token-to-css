@@ -246,6 +246,27 @@ unless you script the MCP tool list.
 | ------- | ------------------- |
 | 15.0.0  | Batch change-requests (one CR per multi-token proposal), agent-authored migrations with attached codemods, `suggest_name`/`group_tokens` sampling, token `search`, `explain` provenance + `GET /explain`, batch `POST /editor/preview` |
 
+## From 17.1.x to 17.2
+
+A patch release. **Nothing breaks and nothing is removed.** Two behavior changes
+worth knowing about:
+
+- **The meta package's TypeScript types are now complete.** `token-to-css`'s
+  `types` file (`src/index.d.ts`) was missing declarations for 22 symbols it
+  re-exports from `@token-to-css/core` (for example `expandTokens`, `deepMerge`,
+  `mergeTokens`, the colour helpers `mix`/`lighten`/`darken`/`parseColor`, and the
+  root-only `createMetrics`/`buildAdoptionReport`). They always existed at run
+  time; a TypeScript consumer can now `import` them without a compile error. If
+  you had worked around this with a local `declare module`, you can remove it.
+- **A connector that throws synchronously no longer crashes `serve`.** Previously
+  `connector.pull()`/`push()` were invoked outside a `try`, so a connector whose
+  method throws before returning a promise took down the whole server; it now
+  returns `502` like an async rejection. If you relied on a crashing connector to
+  halt the process (you should not), handle the 502 response instead.
+
+The declaration-drift gate (`scripts/check-declarations.js`) now also covers the
+meta `.d.ts`, so this class of gap is enforced going forward.
+
 ## Stability guarantees (from 1.0.0)
 
 - **CLI flags** will not be removed or renamed except in a major version, and
