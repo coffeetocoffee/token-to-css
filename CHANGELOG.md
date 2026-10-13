@@ -5,6 +5,47 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [17.2.1] - 2026-10-13
+
+Fixes from a security review: two stored-XSS sinks in the shared review surfaces
+(the served playground and the editor's review panel), an unbounded request-body
+read, and a quadratic expression check that could stall the server. All four were
+reproduced before fixing and are pinned by `test/security-hardening.test.js`.
+
+### Fixed
+
+- **Stored XSS in the served playground (HIGH).** `buildPlaygroundHTML` emitted
+  the generated CSS verbatim inside `<style>` and interpolated mode/brand names
+  into `<option>` elements, while `render()` built token rows with `innerHTML`. A
+  token value of `</style><script>…</script><style>` broke out and executed on
+  page load for every viewer of the shared playground — with `--auth` that
+  includes stealing the bearer token. The CSS now emits `<` as the CSS escape
+  `\3c ` (valid CSS, renders identically), mode/brand names are HTML-escaped, and
+  `render()` builds DOM nodes with `textContent`.
+- **Stored XSS in the editor review panel (HIGH).** `showPanel` concatenated
+  token-derived fields (`changed.from`/`to`, diff keys and values, impact paths)
+  into `panel.innerHTML` unescaped, so a malicious value already in the tree
+  executed when an approver clicked *review* on that row — in the one session
+  that holds write scope. Every interpolated field now goes through a local
+  escaper; the trusted `<span>` markup is unchanged.
+- **Unbounded request bodies (MEDIUM).** `POST` handlers accumulated the body with
+  `body += chunk` and no limit, so one request could grow memory without bound.
+  A shared `readBody` helper (`MAX_BODY_BYTES`, 1 MB) now answers `413` and
+  closes the connection past the cap; all six `serve` routes and both playground
+  routes use it.
+- **Quadratic `looksLikeExpr` (MEDIUM).** The redundant alternative
+  `/[A-Za-z_][\w-]*\(/` (any match contains `(`, already tested) rescanned the
+  remaining string at every position: a 64 KB value took ~4 s over HTTP and a
+  256 KB value stalled the event loop. The alternative is deleted; the check is
+  linear.
+
+### Tests
+
+- 474 tests pass (466 → 474). `test/security-hardening.test.js` covers the
+  `</style>` breakout, option-value injection, the `textContent` render path,
+  panel escaping, the 413 cap (and that normal bodies still pass), and a
+  wall-clock bound on a 64 KB value.
+
 ## [17.2.0] - 2026-10-13
 
 Fixes from a third static review: the declaration-drift gate now guards the
@@ -1056,7 +1097,8 @@ connectors graduate it.)
 - JSON Schema validation (`schema/tokens.schema.json`) of token inputs.
 - Node test suite (`node --test`) covering core, CLI, references, and validation.
 
-[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v17.2.0...HEAD
+[Unreleased]: https://github.com/coffeetocoffee/token-to-css/compare/v17.2.1...HEAD
+[17.2.1]: https://github.com/coffeetocoffee/token-to-css/compare/v17.2.0...v17.2.1
 [17.2.0]: https://github.com/coffeetocoffee/token-to-css/compare/v17.1.0...v17.2.0
 [17.1.0]: https://github.com/coffeetocoffee/token-to-css/compare/v17.0.0...v17.1.0
 [17.0.0]: https://github.com/coffeetocoffee/token-to-css/compare/v15.0.0...v17.0.0

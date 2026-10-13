@@ -267,6 +267,25 @@ worth knowing about:
 The declaration-drift gate (`scripts/check-declarations.js`) now also covers the
 meta `.d.ts`, so this class of gap is enforced going forward.
 
+## From 17.2.x to 17.2.1
+
+A security patch. **Nothing breaks and nothing is removed.** What changed:
+
+- **Token values can no longer inject markup into the shared review surfaces.**
+  The served playground and the editor's review panel both rendered token data
+  as HTML; both now escape it. If you relied on a token value being interpreted
+  as markup (you should not), it is now displayed as text.
+- **Generated CSS inside the playground page writes `<` as `\3c `.** This only
+  affects the in-page `<style>` block of `serve --playground`; the `css` output
+  from `convert`/the CLI is unchanged. Browsers render the escape identically.
+- **POST bodies are capped at 1 MB** (`serve` and the playground hub). A larger
+  body now gets `413 request body exceeds 1048576 bytes` instead of being read
+  without limit. The cap is the exported constant `MAX_BODY_BYTES`
+  (`token-to-css/serve.js`); a legitimate payload above it needs a code change
+  in this release.
+- **A long unbroken token value no longer stalls the server.** The expression
+  heuristic that rescanned at every position is now linear.
+
 ## Stability guarantees (from 1.0.0)
 
 - **CLI flags** will not be removed or renamed except in a major version, and
